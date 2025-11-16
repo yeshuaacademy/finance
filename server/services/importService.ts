@@ -12,6 +12,15 @@ import {
   MissingOpeningBalanceError,
   validateLedgerBalance,
 } from './reconciliationService';
+import {
+  buildExactMatchIndex as buildLedgerExactMatchIndex,
+  buildLedgerMatchCandidates,
+  buildFuzzyMatchIndex,
+  findExactLedgerMatch,
+  findFuzzyLedgerMatch,
+  normalizeMatchableTransaction,
+  type LedgerMatchSource,
+} from './transactionMatching';
 
 interface ProcessImportOptions {
   buffer: Buffer;
@@ -345,18 +354,20 @@ const chunk = <T>(items: T[], size: number): T[][] => {
 
 const REVIEW_CATEGORY_NAME = 'Needs Review';
 
-type SuggestionConfidence = 'exact' | 'description' | 'account' | 'overall' | 'rule' | 'review';
+type SuggestionConfidence =
+  | 'exact'
+  | 'description'
+  | 'account'
+  | 'overall'
+  | 'rule'
+  | 'review'
+  | 'fuzzy';
 
-type SuggestionIndex = {
-  exact: Map<string, Map<string, number>>;
-  byNormalized: Map<string, Map<string, number>>;
-  byAccount: Map<string, Map<string, number>>;
-  overall: Map<string, number>;
-};
+type SuggestionIndex = Map<string, Map<string, number>>;
 
 const sanitizeIdentifier = (value: string | null | undefined): string => (value ?? '').trim().toUpperCase();
 
-const incrementCounter = (map: Map<string, Map<string, number>>, key: string, categoryId: string) => {
+const incrementCounter = (map: SuggestionIndex, key: string, categoryId: string) => {
   if (!key) return;
   let bucket = map.get(key);
   if (!bucket) {
@@ -382,27 +393,14 @@ const pickDominant = (bucket?: Map<string, number>): { categoryId: string | null
 const buildSuggestionIndex = (
   history: Array<{ accountIdentifier: string | null; normalizedKey: string; amountMinor: bigint; categoryId: string }>,
 ): SuggestionIndex => {
-  const index: SuggestionIndex = {
-    exact: new Map(),
-    byNormalized: new Map(),
-    byAccount: new Map(),
-    overall: new Map(),
-  };
+  const index: SuggestionIndex = new Map();
 
   history.forEach((entry) => {
     if (!entry.categoryId) return;
     const accountKey = sanitizeIdentifier(entry.accountIdentifier ?? '');
     const normalizedKey = entry.normalizedKey ?? '';
     const amountKey = entry.amountMinor.toString();
-
-    incrementCounter(index.exact, `${accountKey}|${amountKey}|${normalizedKey}`, entry.categoryId);
-    if (normalizedKey) {
-      incrementCounter(index.byNormalized, normalizedKey, entry.categoryId);
-    }
-    if (accountKey) {
-      incrementCounter(index.byAccount, accountKey, entry.categoryId);
-    }
-    index.overall.set(entry.categoryId, (index.overall.get(entry.categoryId) ?? 0) + 1);
+    incrementCounter(index, `${accountKey}|${amountKey}|${normalizedKey}`, entry.categoryId);
   });
 
   return index;
@@ -417,15 +415,7 @@ const registerSuggestion = (
 ) => {
   const accountKey = sanitizeIdentifier(accountIdentifier ?? '');
   const amountKey = amountMinor.toString();
-
-  incrementCounter(index.exact, `${accountKey}|${amountKey}|${normalizedKey}`, categoryId);
-  if (normalizedKey) {
-    incrementCounter(index.byNormalized, normalizedKey, categoryId);
-  }
-  if (accountKey) {
-    incrementCounter(index.byAccount, accountKey, categoryId);
-  }
-  index.overall.set(categoryId, (index.overall.get(categoryId) ?? 0) + 1);
+  incrementCounter(index, `${accountKey}|${amountKey}|${normalizedKey}`, categoryId);
 };
 
 const suggestCategoryFromIndex = (
@@ -436,27 +426,11 @@ const suggestCategoryFromIndex = (
 ): { categoryId: string | null; confidence: SuggestionConfidence } | null => {
   const accountKey = sanitizeIdentifier(accountIdentifier ?? '');
   const amountKey = amountMinor.toString();
-  const exactBucket = index.exact.get(`${accountKey}|${amountKey}|${normalizedKey}`);
+  const exactBucket = index.get(`${accountKey}|${amountKey}|${normalizedKey}`);
   const exact = pickDominant(exactBucket);
   if (exact.categoryId) {
     return { categoryId: exact.categoryId, confidence: 'exact' };
   }
-
-  const normalized = pickDominant(index.byNormalized.get(normalizedKey));
-  if (normalized.categoryId) {
-    return { categoryId: normalized.categoryId, confidence: 'description' };
-  }
-
-  const account = pickDominant(index.byAccount.get(accountKey));
-  if (account.categoryId) {
-    return { categoryId: account.categoryId, confidence: 'account' };
-  }
-
-  const overall = pickDominant(index.overall.size ? index.overall : undefined);
-  if (overall.categoryId) {
-    return { categoryId: overall.categoryId, confidence: 'overall' };
-  }
-
   return null;
 };
 
@@ -639,6 +613,47 @@ export const processImportBufferWithClient = async (
         historyMatchIndex.set(key, entry.categoryId);
       }
     });
+
+    const manualLedgerTransactions = await tx.transaction.findMany({
+      where: {
+        userId,
+        categoryId: {
+          not: null,
+        },
+        classificationSource: 'manual',
+      },
+      select: {
+        id: true,
+        categoryId: true,
+        description: true,
+        amountMinor: true,
+        direction: true,
+        account: {
+          select: {
+            identifier: true,
+          },
+        },
+        counterparty: true,
+        rawRow: true,
+        createdAt: true,
+      },
+    });
+
+    const ledgerMatchSources: LedgerMatchSource[] = manualLedgerTransactions.map((entry) => ({
+      transactionId: entry.id,
+      categoryId: entry.categoryId!,
+      description: entry.description,
+      amountMinor: entry.amountMinor,
+      direction: entry.direction,
+      accountIdentifier: entry.account?.identifier ?? null,
+      counterparty: entry.counterparty,
+      raw: entry.rawRow,
+      createdAt: entry.createdAt,
+    }));
+
+    const ledgerMatchCandidates = buildLedgerMatchCandidates(ledgerMatchSources);
+    const ledgerExactMatchIndex = buildLedgerExactMatchIndex(ledgerMatchCandidates);
+    const ledgerFuzzyMatchIndex = buildFuzzyMatchIndex(ledgerMatchCandidates);
     let autoCategorized = 0;
     let imported = 0;
     const reconciliationTargets = new Map<string, { accountId: string; month: number; year: number; ledgerId: string }>();
@@ -698,11 +713,39 @@ export const processImportBufferWithClient = async (
         let classificationRuleId: string | null = null;
         let suggestionConfidence: SuggestionConfidence = 'review';
 
+        const normalizedLedgerMatchInput = normalizeMatchableTransaction({
+          description: row.description,
+          amountMinor: row.amountMinor,
+          direction,
+          accountIdentifier: row.accountIdentifier,
+          counterparty: row.counterparty ?? null,
+          raw: row.raw,
+        });
+
         if (historyMatchKey && historyMatchIndex.has(historyMatchKey)) {
           categoryId = historyMatchIndex.get(historyMatchKey)!;
           classificationSource = 'history';
           suggestionConfidence = 'exact';
-        } else {
+        } else if (normalizedLedgerMatchInput) {
+          const exactLedgerMatch = findExactLedgerMatch(normalizedLedgerMatchInput, ledgerExactMatchIndex);
+          if (exactLedgerMatch) {
+            categoryId = exactLedgerMatch.categoryId;
+            classificationSource = 'history';
+            suggestionConfidence = 'exact';
+          } else {
+            const fuzzyLedgerMatch = findFuzzyLedgerMatch(
+              normalizedLedgerMatchInput,
+              ledgerFuzzyMatchIndex,
+            );
+            if (fuzzyLedgerMatch) {
+              categoryId = fuzzyLedgerMatch.categoryId;
+              classificationSource = 'import';
+              suggestionConfidence = 'fuzzy';
+            }
+          }
+        }
+
+        if (!categoryId) {
           const categorization = await categorizeTransaction(
             tx,
             {

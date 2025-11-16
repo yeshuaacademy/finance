@@ -186,7 +186,7 @@ type ApiLedgerTransaction = {
   classificationRuleId?: string | null;
   classificationRuleLabel?: string | null;
   ledgerLockedAt?: string | Date | null;
-  suggestionConfidence?: 'exact' | 'description' | 'account' | 'overall' | 'rule' | 'review' | null;
+  suggestionConfidence?: 'exact' | 'description' | 'account' | 'overall' | 'rule' | 'review' | 'fuzzy' | null;
   suggestedMainCategoryName?: string | null;
   suggestedSubCategoryName?: string | null;
   rawMainCategoryName?: string | null;
@@ -362,7 +362,7 @@ export interface LedgerTransaction {
   classificationRuleId?: string | null;
   classificationRuleLabel?: string | null;
   ledgerLockedAt?: string | null;
-  suggestionConfidence?: 'exact' | 'description' | 'account' | 'overall' | 'rule' | 'review' | null;
+  suggestionConfidence?: 'exact' | 'description' | 'account' | 'overall' | 'rule' | 'review' | 'fuzzy' | null;
   suggestedMainCategoryName?: string | null;
   suggestedSubCategoryName?: string | null;
   rawMainCategoryName?: string | null;
