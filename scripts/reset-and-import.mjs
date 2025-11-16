@@ -132,6 +132,47 @@ const resolveAccountInfo = (rawValue) => {
   };
 };
 
+function deriveDirectionFromRaw(rawDebitCredit, amount) {
+  const raw = String(rawDebitCredit ?? "").trim().toLowerCase();
+
+  // Tokens treated as debit (money going out)
+  const debitTokens = [
+    "debit",
+    "deb",
+    "db",
+    "d",
+    "af",
+    "afschrift",
+    "afschrijving",
+    "uit",
+    "out",
+  ];
+
+  // Tokens treated as credit (money coming in)
+  const creditTokens = [
+    "credit",
+    "cred",
+    "cr",
+    "c",
+    "bij",
+    "bijschrijving",
+    "in",
+  ];
+
+  if (debitTokens.some((token) => raw.startsWith(token))) {
+    return TransactionDirection.debit;
+  }
+  if (creditTokens.some((token) => raw.startsWith(token))) {
+    return TransactionDirection.credit;
+  }
+
+  // Fallback: use amount sign if raw indicator is missing/unknown
+  if (amount < 0) {
+    return TransactionDirection.debit;
+  }
+  return TransactionDirection.credit;
+}
+
 async function main() {
   if (!process.env.DATABASE_URL)
     throw new Error("❌ DATABASE_URL missing from env");
@@ -181,7 +222,13 @@ const userId =
       acc[key] = r[columnIdx] ?? null;
       return acc;
     }, /** @type {Record<string, unknown>} */ ({}));
-    const amount = num(r[iAmt]);
+    const rawAmountCell = r[iAmt];
+    const rawDebitCreditCellIndex = header.indexOf("Debit/credit");
+    const rawDebitCreditCell =
+      rawDebitCreditCellIndex >= 0 ? r[rawDebitCreditCellIndex] : null;
+
+    // Amount in Excel is always positive; keep it as absolute value
+    const amount = Math.abs(num(rawAmountCell));
     const date = parseYyyyMmDd(r[iDate]);
     const description = String(r[iDesc] ?? "");
     const mainCategoryName = trimOrNull(r[iCat]);
@@ -191,12 +238,16 @@ const userId =
       iAccount >= 0 ? r[iAccount] ?? null : DEFAULT_ACCOUNT_IDENTIFIER;
     const accountInfo = resolveAccountInfo(accountRaw);
 
+    const direction = deriveDirectionFromRaw(rawDebitCreditCell, amount);
+
     const canonicalColumns = {
       "Name / Description": description,
       Account: accountInfo?.identifier ?? DEFAULT_ACCOUNT_IDENTIFIER,
       Counterparty: trimOrNull(rowData["Counterparty"] ?? rowData["counterparty"]),
       Code: trimOrNull(rowData["Code"] ?? rowData["code"]),
-      "Debit/credit": amount >= 0 ? "Credit" : "Debit",
+      "Debit/credit":
+        rawDebitCreditCell ??
+        (direction === TransactionDirection.credit ? "Credit" : "Debit"),
       "Amount (EUR)": amount,
       "Transaction type": rowData["Transaction type"] ?? "Excel Import",
       Notifications:
@@ -235,10 +286,10 @@ const userId =
         date,
         description,
         normalizedKey,
-        amountMinor: BigInt(Math.round(amount * 100)), // Prisma BigInt
+        // Store amountMinor as positive minor units; direction holds the sign semantics
+        amountMinor: BigInt(Math.round(Math.abs(amount) * 100)), // Prisma BigInt
         currency: "EUR",
-        direction:
-          amount >= 0 ? TransactionDirection.credit : TransactionDirection.debit,
+        direction,
         source: "Excel Import",
         hash,
         sourceFile: path.basename(file),

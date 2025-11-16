@@ -135,11 +135,14 @@ export const getLedger = async (req: Request, res: Response) => {
         }
       }
 
+      const amount = Number(tx.amountMinor) / 100;
+      const signedAmount = tx.direction === 'debit' ? -Math.abs(amount) : Math.abs(amount);
+
       return {
         id: tx.id,
         date: tx.date,
         description: tx.description,
-        amount: Number(tx.amountMinor) / 100,
+        amount: signedAmount,
         amountMinor: tx.amountMinor.toString(),
         currency: tx.currency,
         direction: tx.direction,
@@ -175,8 +178,11 @@ export const getLedger = async (req: Request, res: Response) => {
     const autoCategorized = transactions.filter(
       (tx) => tx.classificationSource === 'history' || tx.classificationSource === 'rule',
     ).length;
-    const totalAmountMinor = approvedTransactions.reduce((acc, tx) => acc + Number(tx.amountMinor), 0);
-    const totalAmount = totalAmountMinor / 100;
+    const totalAmount = approvedTransactions.reduce((acc, tx) => {
+      const base = Number(tx.amountMinor) / 100;
+      const signed = tx.direction === 'debit' ? -Math.abs(base) : Math.abs(base);
+      return acc + signed;
+    }, 0);
 
     return res.json({
       transactions: payload,

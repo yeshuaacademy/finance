@@ -93,6 +93,27 @@ type AccountBreakdownEntry = {
   count: number;
 };
 
+const getTransactionDirection = (
+  tx: Pick<LedgerTransaction, 'direction' | 'amount'>,
+): 'debit' | 'credit' => {
+  const raw = (tx.direction ?? '').toString().trim().toLowerCase();
+  const debitTokens = ['debit', 'db', 'd', 'af', 'withdrawal', 'out', 'expense'];
+  const creditTokens = ['credit', 'cr', 'c', 'bij', 'deposit', 'in', 'income'];
+
+  if (debitTokens.some((token) => raw.startsWith(token))) {
+    return 'debit';
+  }
+  if (creditTokens.some((token) => raw.startsWith(token))) {
+    return 'credit';
+  }
+  return tx.amount < 0 ? 'debit' : 'credit';
+};
+
+const isDebitTransaction = (tx: Pick<LedgerTransaction, 'direction' | 'amount'>) =>
+  getTransactionDirection(tx) === 'debit';
+
+const getAbsoluteAmount = (tx: Pick<LedgerTransaction, 'amount'>) => Math.abs(tx.amount);
+
 const COLUMN_STORAGE_KEY = 'ledger-column-visibility-v1';
 const COLUMN_DEFINITIONS: Array<{ key: keyof LedgerColumnVisibility; label: string }> = [
   { key: 'date', label: 'Date' },
@@ -444,10 +465,10 @@ function MonthlyOverviewView({
     let income = 0;
     let expenses = 0;
     filteredTransactions.forEach((tx) => {
-      if (tx.amount >= 0) {
-        income += tx.amount;
+      if (isDebitTransaction(tx)) {
+        expenses += getAbsoluteAmount(tx);
       } else {
-        expenses += Math.abs(tx.amount);
+        income += getAbsoluteAmount(tx);
       }
     });
     return {
@@ -514,13 +535,14 @@ function MonthlyOverviewView({
       const bucketKey = identifyAccount(tx.accountLabel);
       const bucket = baseMap.get(bucketKey);
       if (!bucket) return;
-      if (tx.amount >= 0) {
-        bucket.income += tx.amount;
-        bucket.net += tx.amount;
-      } else {
-        const expense = Math.abs(tx.amount);
+      if (isDebitTransaction(tx)) {
+        const expense = getAbsoluteAmount(tx);
         bucket.expenses += expense;
         bucket.net -= expense;
+      } else {
+        const incomeValue = getAbsoluteAmount(tx);
+        bucket.income += incomeValue;
+        bucket.net += incomeValue;
       }
       bucket.count += 1;
     });
@@ -1741,13 +1763,14 @@ function buildCategoryAggregates(transactions: LedgerTransaction[], categoryTree
         totalExpenses: 0,
       };
 
-    if (tx.amount >= 0) {
-      mainBucket.totalIncome += tx.amount;
-      childBucket.totalIncome += tx.amount;
-    } else {
-      const absolute = Math.abs(tx.amount);
+    if (isDebitTransaction(tx)) {
+      const absolute = getAbsoluteAmount(tx);
       mainBucket.totalExpenses += absolute;
       childBucket.totalExpenses += absolute;
+    } else {
+      const incomeValue = getAbsoluteAmount(tx);
+      mainBucket.totalIncome += incomeValue;
+      childBucket.totalIncome += incomeValue;
     }
 
     mainBucket.children.set(childId, childBucket);
@@ -1796,11 +1819,11 @@ function buildSpendingBreakdown(transactions: LedgerTransaction[]): BreakdownEnt
   const totals = new Map<string, { label: string; value: number }>();
 
   transactions.forEach((tx) => {
-    if (tx.amount >= 0) return;
+    if (!isDebitTransaction(tx)) return;
     const key = tx.mainCategoryId ?? tx.categoryId ?? 'uncategorized';
     const label = tx.mainCategoryName ?? tx.categoryName ?? 'Uncategorized';
     const item = totals.get(key) ?? { label, value: 0 };
-    item.value += Math.abs(tx.amount);
+    item.value += getAbsoluteAmount(tx);
     totals.set(key, item);
   });
 
@@ -1826,10 +1849,10 @@ function buildLineData(transactions: LedgerTransaction[]): LineDatum[] {
   transactions.forEach((tx) => {
     const key = tx.date.slice(0, 10);
     const bucket = daily.get(key) ?? { income: 0, expense: 0 };
-    if (tx.amount >= 0) {
-      bucket.income += tx.amount;
+    if (isDebitTransaction(tx)) {
+      bucket.expense += getAbsoluteAmount(tx);
     } else {
-      bucket.expense += Math.abs(tx.amount);
+      bucket.income += getAbsoluteAmount(tx);
     }
     daily.set(key, bucket);
   });
@@ -1861,10 +1884,10 @@ function buildCashFlowData(transactions: LedgerTransaction[]): CashFlowDatum[] {
     if (Number.isNaN(date.getTime())) return;
     const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
     const bucket = grouped.get(key) ?? { income: 0, expenses: 0 };
-    if (tx.amount >= 0) {
-      bucket.income += tx.amount;
+    if (isDebitTransaction(tx)) {
+      bucket.expenses += getAbsoluteAmount(tx);
     } else {
-      bucket.expenses += Math.abs(tx.amount);
+      bucket.income += getAbsoluteAmount(tx);
     }
     grouped.set(key, bucket);
   });
@@ -1885,8 +1908,12 @@ function buildCashFlowData(transactions: LedgerTransaction[]): CashFlowDatum[] {
 }
 
 function buildPlannedSummary(transactions: LedgerTransaction[]): PlannedSummary[] {
-  const income = transactions.filter((tx) => tx.amount >= 0).reduce((acc, tx) => acc + tx.amount, 0);
-  const expenses = transactions.filter((tx) => tx.amount < 0).reduce((acc, tx) => acc + Math.abs(tx.amount), 0);
+  const income = transactions
+    .filter((tx) => !isDebitTransaction(tx))
+    .reduce((acc, tx) => acc + getAbsoluteAmount(tx), 0);
+  const expenses = transactions
+    .filter((tx) => isDebitTransaction(tx))
+    .reduce((acc, tx) => acc + getAbsoluteAmount(tx), 0);
 
   return [
     {
@@ -1909,7 +1936,10 @@ function buildPlannedSummary(transactions: LedgerTransaction[]): PlannedSummary[
 function calculateSummary(list: LedgerTransaction[]): SummaryValues {
   const reviewCount = list.filter((tx) => tx.needsManualCategory).length;
   const autoCategorized = list.filter((tx) => tx.autoCategorized).length;
-  const totalAmount = list.reduce((acc, tx) => acc + tx.amount, 0);
+  const totalAmount = list.reduce(
+    (acc, tx) => acc + (isDebitTransaction(tx) ? -getAbsoluteAmount(tx) : getAbsoluteAmount(tx)),
+    0,
+  );
   return {
     total: list.length,
     reviewCount,

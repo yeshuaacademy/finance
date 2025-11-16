@@ -341,6 +341,7 @@ export interface LedgerTransaction {
   date: string; // ISO
   description: string;
   amount: number;
+  direction?: 'credit' | 'debit';
   source: string;
   accountLabel: string | null;
   accountIdentifier: string | null;
@@ -476,11 +477,23 @@ const mapApiTransaction = (tx: ApiLedgerTransaction): LedgerTransaction => {
   } = deriveCategoryNames(tx);
   const mainCategoryId = deriveMainCategoryId(mainName);
 
+  const baseAmount =
+    typeof tx.amount === 'number'
+      ? tx.amount
+      : tx.amountMinor
+      ? Number(tx.amountMinor) / 100
+      : 0;
+  const derivedDirection =
+    tx.direction ?? (baseAmount < 0 ? 'debit' : 'credit');
+  const signedAmount =
+    derivedDirection === 'debit' ? -Math.abs(baseAmount) : Math.abs(baseAmount);
+
   return {
     id: tx.id,
     date: isoDate,
     description: tx.description,
-    amount: tx.amount,
+    amount: signedAmount,
+    direction: derivedDirection,
     source: tx.source,
     accountLabel: tx.accountLabel ?? tx.accountIdentifier ?? null,
     accountIdentifier: tx.accountIdentifier ?? null,
@@ -676,6 +689,7 @@ const buildTransactionFromRow = (row: ParsedRow): Omit<LedgerTransaction, 'categ
     date: parsedDate.toISOString(),
     description: String(rawDescription).trim(),
     amount,
+    direction: amount >= 0 ? 'credit' : 'debit',
     source: sourceValue,
     accountLabel: accountLabel ?? null,
     accountIdentifier: accountLabel ? accountIdentifier ?? sourceValue : null,
@@ -1162,6 +1176,7 @@ export const LedgerProvider = ({ children }: { children: ReactNode }) => {
         date: tx.date,
         description: tx.description,
         amount: tx.amount,
+        direction: tx.direction,
         source: tx.source,
         accountLabel: tx.accountLabel,
         accountIdentifier: tx.accountIdentifier,
