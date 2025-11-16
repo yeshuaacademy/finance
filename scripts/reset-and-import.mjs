@@ -53,13 +53,12 @@ function hashString(s) {
   return crypto.createHash("sha256").update(s).digest("hex").slice(0, 32);
 }
 
-function normalizeKey(...parts) {
-  return parts
-    .join(" ")
+const normalizeDescriptionOnly = (value) =>
+  normalizeWhitespace(String(value ?? ""))
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
     .trim();
-}
 
 const normalizeWhitespace = (value) =>
   String(value ?? "")
@@ -293,12 +292,7 @@ const userId =
       }
     });
 
-    const normalizedKey = normalizeKey(
-      description,
-      mainCategoryName ?? "",
-      categoryName ?? "",
-      amount
-    );
+    const normalizedKey = normalizeDescriptionOnly(description);
 
     // ✅ Include row index in hash to avoid duplicate constraint
     const hashInput = [
@@ -337,6 +331,8 @@ const userId =
         hash,
         importFingerprint,
         sourceFile: path.basename(file),
+        counterparty,
+        reference: trimOrNull(rowData["Reference"]),
         classificationSource: TransactionClassificationSource.manual,
         createdAt: new Date(),
         updatedAt: new Date(),
