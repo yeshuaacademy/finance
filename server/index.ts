@@ -9,6 +9,7 @@ import { listAccounts, lockOpeningBalance, upsertOpeningBalance } from './routes
 import { getReconciliation } from './routes/reconciliation';
 import { lockLedger, unlockLedger } from './routes/ledgers';
 import { getRules, postRule, patchRule, removeRule, previewRule, applyRule } from './routes/rules';
+import { ensureCategorizationRuleConditionsColumn } from './db/ensureCategorizationRuleConditions';
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -38,8 +39,17 @@ app.delete('/api/rules/:id', removeRule);
 app.post('/api/rules/:id/preview', previewRule);
 app.post('/api/rules/:id/apply', applyRule);
 
-const port = Number(process.env.API_PORT ?? 4000);
+async function start() {
+  try {
+    await ensureCategorizationRuleConditionsColumn();
+  } catch (err) {
+    console.error('[Startup] Continuing without conditions column (rules may fail)', err);
+  }
 
-app.listen(port, () => {
-  console.log(`API server listening on port ${port}`);
-});
+  const port = Number(process.env.API_PORT ?? 4000);
+  app.listen(port, () => {
+    console.log(`API server listening on port ${port}`);
+  });
+}
+
+void start();
