@@ -5,6 +5,10 @@ import type { RuleMatchField, RuleMatchType } from '@prisma/client';
 
 const DEFAULT_USER_ID = process.env.DEFAULT_USER_ID ?? 'demo-user';
 
+const logRequest = (req: Request) => {
+  console.log(`[rules] ${req.method} ${req.originalUrl} user=${req.header('x-user-id') ?? 'unknown'}`);
+};
+
 const parsePriority = (value: unknown): number | undefined => {
   if (value === undefined || value === null || value === '') {
     return undefined;
@@ -23,6 +27,7 @@ const isMatchField = (value: string): value is RuleMatchField =>
   ['description', 'counterparty', 'reference', 'source'].includes(value);
 
 export const getRules = async (req: Request, res: Response) => {
+  logRequest(req);
   const userId = req.header('x-user-id') ?? DEFAULT_USER_ID;
 
   try {
@@ -50,6 +55,7 @@ export const getRules = async (req: Request, res: Response) => {
 };
 
 export const postRule = async (req: Request, res: Response) => {
+  logRequest(req);
   const userId = req.header('x-user-id') ?? DEFAULT_USER_ID;
   const { label, pattern, categoryId, conditions } = req.body ?? {};
 
@@ -102,6 +108,7 @@ export const postRule = async (req: Request, res: Response) => {
 };
 
 export const patchRule = async (req: Request, res: Response) => {
+  logRequest(req);
   const userId = req.header('x-user-id') ?? DEFAULT_USER_ID;
   const ruleId = req.params.id;
   if (!ruleId) {
@@ -151,6 +158,7 @@ export const patchRule = async (req: Request, res: Response) => {
 };
 
 export const previewRule = async (req: Request, res: Response) => {
+  logRequest(req);
   const userId = req.header('x-user-id') ?? DEFAULT_USER_ID;
   const ruleId = req.params.id;
   const scope = req.body?.scope;
@@ -186,6 +194,7 @@ export const previewRule = async (req: Request, res: Response) => {
 };
 
 export const applyRule = async (req: Request, res: Response) => {
+  logRequest(req);
   const userId = req.header('x-user-id') ?? DEFAULT_USER_ID;
   const ruleId = req.params.id;
   const transactionIds: string[] = Array.isArray(req.body?.transactionIds) ? req.body.transactionIds : [];
@@ -209,6 +218,7 @@ export const applyRule = async (req: Request, res: Response) => {
   }
 };
 export const removeRule = async (req: Request, res: Response) => {
+  logRequest(req);
   const userId = req.header('x-user-id') ?? DEFAULT_USER_ID;
   const ruleId = req.params.id;
   if (!ruleId) {

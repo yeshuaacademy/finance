@@ -1,5 +1,14 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4000';
+const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+const API_BASE_URL =
+  rawApiBase && rawApiBase.length > 0
+    ? rawApiBase.replace(/\/+$/, '')
+    : 'http://localhost:4000';
 const DEFAULT_USER_ID = process.env.NEXT_PUBLIC_API_USER_ID ?? 'demo-user';
+
+const getApiUrl = (path: string): string => {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${API_BASE_URL}${cleanPath}`;
+};
 
 const withUserHeader = (init: RequestInit = {}): RequestInit => {
   const headers = new Headers(init.headers);
@@ -9,7 +18,7 @@ const withUserHeader = (init: RequestInit = {}): RequestInit => {
 };
 
 export const fetchLedger = async () => {
-  const response = await fetch(`${API_BASE_URL}/api/ledger`, withUserHeader({ cache: 'no-store' }));
+  const response = await fetch(getApiUrl('/api/ledger'), withUserHeader({ cache: 'no-store' }));
 
   if (!response.ok) {
     throw new Error('Failed to load ledger');
@@ -19,7 +28,7 @@ export const fetchLedger = async () => {
 };
 
 export const fetchReview = async () => {
-  const response = await fetch(`${API_BASE_URL}/api/review`, withUserHeader({ cache: 'no-store' }));
+  const response = await fetch(getApiUrl('/api/review'), withUserHeader({ cache: 'no-store' }));
 
   if (!response.ok) {
     throw new Error('Failed to load review queue');
@@ -29,7 +38,7 @@ export const fetchReview = async () => {
 };
 
 export const clearReviewQueue = async () => {
-  const response = await fetch(`${API_BASE_URL}/api/review/clear`, withUserHeader({
+  const response = await fetch(getApiUrl('/api/review/clear'), withUserHeader({
     method: 'POST',
   }));
 
@@ -42,7 +51,7 @@ export const clearReviewQueue = async () => {
 };
 
 export const uploadImportFile = async (formData: FormData) => {
-  const response = await fetch(`${API_BASE_URL}/api/upload`, withUserHeader({
+  const response = await fetch(getApiUrl('/api/upload'), withUserHeader({
     method: 'POST',
     body: formData,
   }));
@@ -55,7 +64,7 @@ export const uploadImportFile = async (formData: FormData) => {
 };
 
 export const updateCategory = async (id: string, payload: { categoryId?: string | null; categoryName?: string }) => {
-  const response = await fetch(`${API_BASE_URL}/api/transactions/${id}/category`, withUserHeader({
+  const response = await fetch(getApiUrl(`/api/transactions/${id}/category`), withUserHeader({
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -71,7 +80,7 @@ export const updateCategory = async (id: string, payload: { categoryId?: string 
 };
 
 export const fetchAccounts = async () => {
-  const response = await fetch(`${API_BASE_URL}/api/accounts`, withUserHeader({ cache: 'no-store' }));
+  const response = await fetch(getApiUrl('/api/accounts'), withUserHeader({ cache: 'no-store' }));
 
   if (!response.ok) {
     throw new Error('Failed to load accounts');
@@ -86,7 +95,7 @@ export const saveOpeningBalance = async (accountId: string, payload: {
   currency?: string;
   note?: string;
 }) => {
-  const response = await fetch(`${API_BASE_URL}/api/accounts/${accountId}/opening-balance`, withUserHeader({
+  const response = await fetch(getApiUrl(`/api/accounts/${accountId}/opening-balance`), withUserHeader({
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -103,7 +112,7 @@ export const saveOpeningBalance = async (accountId: string, payload: {
 };
 
 export const lockOpeningBalance = async (balanceId: string) => {
-  const response = await fetch(`${API_BASE_URL}/api/opening-balances/${balanceId}/lock`, withUserHeader({
+  const response = await fetch(getApiUrl(`/api/opening-balances/${balanceId}/lock`), withUserHeader({
     method: 'POST',
   }));
 
@@ -129,7 +138,7 @@ export const fetchReconciliation = async (params: {
   if (params.start) query.set('start', params.start);
   if (params.end) query.set('end', params.end);
 
-  const response = await fetch(`${API_BASE_URL}/api/reconciliation?${query.toString()}`, withUserHeader({ cache: 'no-store' }));
+  const response = await fetch(getApiUrl(`/api/reconciliation?${query.toString()}`), withUserHeader({ cache: 'no-store' }));
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Failed to load reconciliation data' }));
@@ -140,7 +149,7 @@ export const fetchReconciliation = async (params: {
 };
 
 export const lockLedgerPeriod = async (ledgerId: string, payload?: { note?: string }) => {
-  const response = await fetch(`${API_BASE_URL}/api/ledger/${ledgerId}/lock`, withUserHeader({
+  const response = await fetch(getApiUrl(`/api/ledger/${ledgerId}/lock`), withUserHeader({
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -157,7 +166,7 @@ export const lockLedgerPeriod = async (ledgerId: string, payload?: { note?: stri
 };
 
 export const unlockLedgerPeriod = async (ledgerId: string) => {
-  const response = await fetch(`${API_BASE_URL}/api/ledger/${ledgerId}/unlock`, withUserHeader({
+  const response = await fetch(getApiUrl(`/api/ledger/${ledgerId}/unlock`), withUserHeader({
     method: 'POST',
   }));
 
@@ -181,7 +190,7 @@ type RulePayload = {
 };
 
 export const fetchCategorizationRules = async () => {
-  const response = await fetch(`${API_BASE_URL}/api/rules`, withUserHeader({ cache: 'no-store' }));
+  const response = await fetch(getApiUrl('/api/rules'), withUserHeader({ cache: 'no-store' }));
 
   if (!response.ok) {
     throw new Error('Failed to load rules');
@@ -191,7 +200,7 @@ export const fetchCategorizationRules = async () => {
 };
 
 export const createCategorizationRule = async (payload: RulePayload) => {
-  const response = await fetch(`${API_BASE_URL}/api/rules`, withUserHeader({
+  const response = await fetch(getApiUrl('/api/rules'), withUserHeader({
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -208,7 +217,7 @@ export const createCategorizationRule = async (payload: RulePayload) => {
 };
 
 export const updateCategorizationRule = async (id: string, payload: Partial<RulePayload>) => {
-  const response = await fetch(`${API_BASE_URL}/api/rules/${id}`, withUserHeader({
+  const response = await fetch(getApiUrl(`/api/rules/${id}`), withUserHeader({
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -225,7 +234,7 @@ export const updateCategorizationRule = async (id: string, payload: Partial<Rule
 };
 
 export const deleteCategorizationRule = async (id: string): Promise<void> => {
-  const response = await fetch(`${API_BASE_URL}/api/rules/${id}`, withUserHeader({
+  const response = await fetch(getApiUrl(`/api/rules/${id}`), withUserHeader({
     method: 'DELETE',
   }));
 
@@ -238,7 +247,8 @@ export const deleteCategorizationRule = async (id: string): Promise<void> => {
 };
 
 export const previewRule = async (id: string, scope: 'review-queue' | { importBatchId: string }) => {
-  const response = await fetch(`${API_BASE_URL}/api/rules/${id}/preview`, withUserHeader({
+  const url = getApiUrl(`/api/rules/${id}/preview`);
+  const response = await fetch(url, withUserHeader({
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(scope === 'review-queue' ? { scope } : { scope: 'import-batch', importBatchId: scope.importBatchId }),
@@ -246,6 +256,7 @@ export const previewRule = async (id: string, scope: 'review-queue' | { importBa
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Failed to preview rule' }));
+    console.error('Failed to preview rule', { url, status: response.status, error });
     throw new Error(error.error ?? 'Failed to preview rule');
   }
 
@@ -253,7 +264,8 @@ export const previewRule = async (id: string, scope: 'review-queue' | { importBa
 };
 
 export const applyRule = async (id: string, transactionIds: string[]) => {
-  const response = await fetch(`${API_BASE_URL}/api/rules/${id}/apply`, withUserHeader({
+  const url = getApiUrl(`/api/rules/${id}/apply`);
+  const response = await fetch(url, withUserHeader({
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ transactionIds }),
@@ -261,6 +273,7 @@ export const applyRule = async (id: string, transactionIds: string[]) => {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Failed to apply rule' }));
+    console.error('Failed to apply rule', { url, status: response.status, error });
     throw new Error(error.error ?? 'Failed to apply rule');
   }
 
