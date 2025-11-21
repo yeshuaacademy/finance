@@ -109,7 +109,7 @@ Codex automates the following steps seamlessly in both environments, using the a
 1. **Bootstrap the app**
 
    ```bash
-   git clone https://github.com/prochattools/boilerplate-saas.git my-new-app
+   git clone https://github.com/prochattools/boilerplate.git my-new-app
    cd my-new-app
    ```
 
