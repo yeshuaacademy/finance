@@ -66,6 +66,8 @@ const main = async () => {
     }
 
     console.log("✅ Data sync completed via MCP bridge.");
+    // Ensure production tenant user has rights over the schema
+    await grantSchemaPrivileges(schemaName);
   } finally {
     await localClient.end();
   }
@@ -258,4 +260,17 @@ function requireEnv(key) {
     throw new Error(`Missing required environment variable: ${key}`);
   }
   return value;
+}
+
+async function grantSchemaPrivileges(schema) {
+  console.log(`🛰️  Granting privileges on schema "${schema}" to tenant_openfund_user`);
+
+  const sql = `
+GRANT USAGE ON SCHEMA ${quoteIdent(schema)} TO tenant_openfund_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${quoteIdent(schema)} TO tenant_openfund_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA ${quoteIdent(schema)}
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tenant_openfund_user;
+`;
+
+  await executeSqlViaMcp(sql, { label: `grant privileges for ${schema}` });
 }
