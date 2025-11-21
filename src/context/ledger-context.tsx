@@ -66,19 +66,25 @@ const ACCOUNT_LABEL_LOOKUP: Map<string, AccountLabelEntry> = ACCOUNT_LABEL_ENTRI
   new Map<string, AccountLabelEntry>(),
 );
 
-const normalizeRuleResponse = (rule: any): RuleSummary => ({
-  id: rule.id,
-  label: rule.label,
-  pattern: rule.pattern,
-  matchType: rule.matchType,
-  matchField: rule.matchField,
-  categoryId: rule.categoryId,
-  categoryName: rule.category?.name ?? null,
-  priority: rule.priority,
-  isActive: rule.isActive,
-  createdAt: rule.createdAt,
-  updatedAt: rule.updatedAt,
-});
+const normalizeRuleResponse = (rule: any): RuleSummary => {
+  const safeConditions = Array.isArray(rule.conditions) ? (rule.conditions as RuleCondition[]) : null;
+  return {
+    id: rule.id,
+    label: rule.label,
+    pattern: rule.pattern,
+    matchType: rule.matchType,
+    matchField: rule.matchField,
+    categoryId: rule.categoryId,
+    categoryName: rule.category?.name ?? null,
+    mainCategoryId: deriveMainCategoryId(splitCategoryLabel(rule.category?.name ?? null).main),
+    mainCategoryName: splitCategoryLabel(rule.category?.name ?? null).main,
+    conditions: safeConditions,
+    priority: rule.priority,
+    isActive: rule.isActive,
+    createdAt: rule.createdAt,
+    updatedAt: rule.updatedAt,
+  };
+};
 
 const sortRules = (a: RuleSummary, b: RuleSummary) => {
   if (a.priority !== b.priority) {
@@ -137,6 +143,9 @@ type RuleSummary = {
   matchField: string;
   categoryId: string;
   categoryName?: string | null;
+  mainCategoryId?: string | null;
+  mainCategoryName?: string | null;
+  conditions?: RuleCondition[] | null;
   priority: number;
   isActive: boolean;
   createdAt: string;
@@ -145,10 +154,12 @@ type RuleSummary = {
 
 type RuleInput = {
   label: string;
-  pattern: string;
+  pattern?: string;
+  mainCategoryId?: string;
   categoryId: string;
   matchType?: string;
   matchField?: string;
+  conditions?: RuleCondition[];
   priority?: number;
   isActive?: boolean;
 };
@@ -223,6 +234,14 @@ export interface Category {
   parentId: UUID | null;
   color?: string | null;
 }
+
+export type RuleConditionField = 'payee' | 'counterparty' | 'description' | 'amount' | 'source' | 'reference';
+export type RuleConditionMatchType = 'contains' | 'startsWith' | 'endsWith' | 'equals' | 'regex';
+export type RuleCondition = {
+  field: RuleConditionField;
+  matchType: RuleConditionMatchType;
+  value: string;
+};
 
 const slugify = (value: string): string =>
   value

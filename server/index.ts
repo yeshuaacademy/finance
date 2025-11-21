@@ -8,7 +8,7 @@ import { getReviewTransactions, updateTransactionCategory, clearReviewQueue } fr
 import { listAccounts, lockOpeningBalance, upsertOpeningBalance } from './routes/accounts';
 import { getReconciliation } from './routes/reconciliation';
 import { lockLedger, unlockLedger } from './routes/ledgers';
-import { getRules, postRule, patchRule, removeRule } from './routes/rules';
+import { getRules, postRule, patchRule, removeRule, previewRule, applyRule } from './routes/rules';
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -35,6 +35,8 @@ app.get('/api/rules', getRules);
 app.post('/api/rules', postRule);
 app.patch('/api/rules/:id', patchRule);
 app.delete('/api/rules/:id', removeRule);
+app.post('/api/rules/:id/preview', previewRule);
+app.post('/api/rules/:id/apply', applyRule);
 
 const port = Number(process.env.API_PORT ?? 4000);
 

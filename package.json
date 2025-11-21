@@ -6,6 +6,7 @@
 		"dev": "next dev",
 		"dev:server": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"commonjs\"}' ts-node-dev --respawn --transpile-only server/index.ts",
 		"dev:full": "concurrently \"npm run dev:server\" \"npm run dev\"",
+		"patch:rules:conditions": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"commonjs\"}' ts-node-dev --transpile-only server/scripts/add-categorization-rule-conditions.ts",
 		"generate:ledger": "node scripts/generate-initial-ledger.js",
 		"lint": "next lint",
 		"test": "vitest run",

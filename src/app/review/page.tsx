@@ -100,10 +100,11 @@ function ReviewPageContent() {
   const handleCreateRuleDraft = useCallback((tx: LedgerTransaction) => {
     setRuleDraft({
       label: tx.description.slice(0, 60),
-      pattern: tx.description,
+      mainCategoryId: tx.mainCategoryId ?? '',
       categoryId: tx.categoryId ?? '',
-      matchType: 'contains',
-      matchField: 'description',
+      conditions: [
+        { field: 'description', matchType: 'contains', value: tx.description },
+      ],
       priority: 100,
       isActive: true,
     });
@@ -127,11 +128,6 @@ function ReviewPageContent() {
       setIsClearingQueue(false);
     }
   }, [clearReviewQueueAction, reviewTransactions.length]);
-
-  const categoryOptions = useMemo(
-    () => categories.map((category) => ({ id: category.id, name: category.name })),
-    [categories],
-  );
 
   return (
     <DashboardShell
@@ -194,7 +190,8 @@ function ReviewPageContent() {
           </p>
           <div className="mt-4">
             <RuleManager
-              categoryOptions={categoryOptions}
+              mainCategories={mainCategories}
+              subcategories={subcategories}
               draft={ruleDraft}
               onDraftConsumed={() => setRuleDraft(undefined)}
             />

@@ -6,6 +6,32 @@ const AMOUNT_THRESHOLD_MINOR = BigInt(
   Math.max(1, Math.round(AMOUNT_THRESHOLD_EUROS * 100)),
 );
 
+/**
+ * Each transaction must be either in the review queue or in the ledger, never in neither.
+ * All transitions out of review should go through this helper to keep the invariant.
+ */
+export const confirmTransactions = async (
+  tx: Prisma.TransactionClient,
+  params: { userId: string; transactionIds: string[] },
+): Promise<number> => {
+  if (!params.transactionIds.length) return 0;
+
+  const result = await tx.transaction.updateMany({
+    where: {
+      userId: params.userId,
+      id: { in: params.transactionIds },
+      classificationSource: {
+        not: 'manual',
+      },
+    },
+    data: {
+      classificationSource: 'manual',
+    },
+  });
+
+  return result.count;
+};
+
 export interface CategorizationCandidate {
   userId: string;
   source: string;
@@ -33,6 +59,7 @@ export const categorizeTransaction = async (
     counterparty: candidate.counterparty,
     reference: candidate.reference,
     source: candidate.source,
+    amountMinor: candidate.amountMinor,
   });
 
   if (rule) {

@@ -3,12 +3,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useLedger } from '@/context/ledger-context';
+import type { Category, RuleCondition } from '@/context/ledger-context';
+import { previewRule as previewRuleApi, applyRule as applyRuleApi } from '@/libs/api';
 
 const MATCH_TYPES = [
   { value: 'contains', label: 'Contains' },
   { value: 'startsWith', label: 'Starts with' },
   { value: 'endsWith', label: 'Ends with' },
   { value: 'regex', label: 'Regex' },
+  { value: 'equals', label: 'Equals' },
 ] as const;
 
 const MATCH_FIELDS = [
@@ -22,56 +25,77 @@ const DEFAULT_PRIORITY = 100;
 
 export type RuleFormState = {
   label: string;
-  pattern: string;
+  mainCategoryId: string;
   categoryId: string;
-  matchType: string;
-  matchField: string;
   priority: number;
   isActive: boolean;
+  conditions: RuleCondition[];
 };
 
 type RuleManagerProps = {
-  categoryOptions: Array<{ id: string; name: string }>;
-  draft?: Partial<RuleFormState> & { categoryId?: string };
+  mainCategories: Category[];
+  subcategories: Record<string, Category[]>;
+  draft?: Partial<RuleFormState> & { categoryId?: string; mainCategoryId?: string };
   onDraftConsumed?: () => void;
 };
 
 const createInitialState = (): RuleFormState => ({
   label: '',
-  pattern: '',
+  mainCategoryId: '',
   categoryId: '',
-  matchType: 'contains',
-  matchField: 'description',
   priority: DEFAULT_PRIORITY,
   isActive: true,
+  conditions: [
+    { field: 'description', matchType: 'contains', value: '' },
+  ],
 });
 
-export function RuleManager({ categoryOptions, draft, onDraftConsumed }: RuleManagerProps) {
-  const { rules, serverPipelineEnabled, createRule, updateRule, deleteRule, refreshRules } = useLedger();
+export function RuleManager({ mainCategories, subcategories, draft, onDraftConsumed }: RuleManagerProps) {
+  const { rules, serverPipelineEnabled, createRule, updateRule, deleteRule, refreshRules, refreshLedger } = useLedger();
   const [form, setForm] = useState<RuleFormState>(createInitialState);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [modalRuleId, setModalRuleId] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewMatches, setPreviewMatches] = useState<any[]>([]);
 
   useEffect(() => {
-    if (draft && draft.pattern) {
+    if (draft) {
+      const nextConditions =
+        draft.conditions && draft.conditions.length
+          ? (draft.conditions as RuleCondition[])
+          : draft.categoryId || draft.label
+          ? ([
+              {
+                field: ((draft as any).matchField ?? 'description') as RuleCondition['field'],
+                matchType: ((draft as any).matchType ?? 'contains') as RuleCondition['matchType'],
+                value: draft.label ?? '',
+              },
+            ] as RuleCondition[])
+          : undefined;
+
       setForm((prev) => ({
         ...prev,
         ...draft,
-        pattern: draft.pattern ?? prev.pattern,
-        label: draft.label ?? draft.pattern ?? prev.label,
+        label: draft.label ?? prev.label,
         categoryId: draft.categoryId ?? prev.categoryId,
-        matchType: draft.matchType ?? prev.matchType,
-        matchField: draft.matchField ?? prev.matchField,
+        mainCategoryId: draft.mainCategoryId ?? prev.mainCategoryId,
+        conditions: nextConditions ?? prev.conditions,
       }));
       setEditingId(null);
       onDraftConsumed?.();
     }
   }, [draft, onDraftConsumed]);
 
-  const sortedCategories = useMemo(
-    () => categoryOptions.slice().sort((a, b) => a.name.localeCompare(b.name)),
-    [categoryOptions],
+  const sortedMains = useMemo(
+    () => mainCategories.slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [mainCategories],
   );
+
+  const availableSubs = useMemo(() => {
+    if (!form.mainCategoryId) return [];
+    return (subcategories[form.mainCategoryId] ?? []).slice().sort((a, b) => a.name.localeCompare(b.name));
+  }, [form.mainCategoryId, subcategories]);
 
   const handleChange = (field: keyof RuleFormState) =>
     (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -97,8 +121,12 @@ export function RuleManager({ categoryOptions, draft, onDraftConsumed }: RuleMan
       toast.error('Rule management is only available when connected to the server.');
       return;
     }
-    if (!form.label.trim() || !form.pattern.trim() || !form.categoryId) {
-      toast.error('Label, pattern, and category are required.');
+    if (!form.label.trim() || !form.categoryId) {
+      toast.error('Label and category are required.');
+      return;
+    }
+    if (!form.conditions.length || form.conditions.some((cond) => !cond.value.trim())) {
+      toast.error('Each condition needs a value.');
       return;
     }
 
@@ -106,10 +134,12 @@ export function RuleManager({ categoryOptions, draft, onDraftConsumed }: RuleMan
     try {
       const payload = {
         label: form.label.trim(),
-        pattern: form.pattern.trim(),
+        pattern: form.conditions[0]?.value ?? '',
+        mainCategoryId: form.mainCategoryId || undefined,
         categoryId: form.categoryId,
-        matchType: form.matchType,
-        matchField: form.matchField,
+        matchType: form.conditions[0]?.matchType ?? 'contains',
+        matchField: form.conditions[0]?.field ?? 'description',
+        conditions: form.conditions,
         priority: form.priority,
         isActive: form.isActive,
       };
@@ -137,12 +167,17 @@ export function RuleManager({ categoryOptions, draft, onDraftConsumed }: RuleMan
     setEditingId(rule.id);
     setForm({
       label: rule.label,
-      pattern: rule.pattern,
       categoryId: rule.categoryId,
-      matchType: rule.matchType,
-      matchField: rule.matchField,
+      mainCategoryId: rule.mainCategoryId ?? '',
       priority: rule.priority ?? DEFAULT_PRIORITY,
       isActive: rule.isActive,
+      conditions: rule.conditions && rule.conditions.length
+        ? (rule.conditions as RuleCondition[])
+        : [{
+            field: (rule.matchField ?? 'description') as RuleCondition['field'],
+            matchType: (rule.matchType ?? 'contains') as RuleCondition['matchType'],
+            value: rule.pattern ?? '',
+          }],
     });
   };
 
@@ -165,6 +200,40 @@ export function RuleManager({ categoryOptions, draft, onDraftConsumed }: RuleMan
     } catch (error) {
       console.error(error);
       toast.error('Unable to delete rule');
+    }
+  };
+
+  const openPreview = async (ruleId: string) => {
+    setModalRuleId(ruleId);
+    setPreviewLoading(true);
+    setPreviewMatches([]);
+    try {
+      const matches = await previewRuleApi(ruleId, 'review-queue');
+      setPreviewMatches(matches ?? []);
+    } catch (error) {
+      console.error(error);
+      toast.error('Unable to preview rule');
+      setModalRuleId(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const applyRule = async () => {
+    if (!modalRuleId || !previewMatches.length) {
+      setModalRuleId(null);
+      return;
+    }
+    try {
+      await applyRuleApi(modalRuleId, previewMatches.map((m) => m.id));
+      toast.success(`Rule applied to ${previewMatches.length} transaction${previewMatches.length === 1 ? '' : 's'}.`);
+      setModalRuleId(null);
+      setPreviewMatches([]);
+      await refreshRules();
+      await refreshLedger();
+    } catch (error) {
+      console.error(error);
+      toast.error('Unable to apply rule');
     }
   };
 
@@ -195,61 +264,131 @@ export function RuleManager({ categoryOptions, draft, onDraftConsumed }: RuleMan
               placeholder="e.g. ING – Rent"
             />
           </label>
-          <label className="text-xs font-semibold text-white/60">
-            Pattern
-            <input
-              type="text"
-              value={form.pattern}
-              onChange={handleChange('pattern')}
-              className="mt-1 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white focus:border-[#2970FF]/70 focus:outline-none"
-              placeholder="What text should match?"
-            />
-          </label>
-          <label className="text-xs font-semibold text-white/60">
-            Category
-            <select
-              value={form.categoryId}
-              onChange={handleChange('categoryId')}
-              className="mt-1 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white focus:border-[#2970FF]/70 focus:outline-none"
-            >
-              <option value="">Select category</option>
-              {sortedCategories.map((category) => (
-                <option key={category.id} value={category.id} className="bg-[#061124]">
-                  {category.name}
-                </option>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs font-semibold text-white/60">
+              <span>Conditions</span>
+              <button
+                type="button"
+                className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-semibold text-white/70 transition hover:bg-white/10"
+                onClick={() =>
+                  setForm((prev) => ({
+                    ...prev,
+                    conditions: [
+                      ...prev.conditions,
+                      { field: 'description', matchType: 'contains', value: '' },
+                    ],
+                  }))
+                }
+              >
+                + Add condition
+              </button>
+            </div>
+            <div className="space-y-2">
+              {form.conditions.map((condition, index) => (
+                <div key={`${condition.field}-${index}`} className="grid gap-2 sm:grid-cols-[1fr_1fr_2fr_auto]">
+                  <select
+                    value={condition.field}
+                    onChange={(event) => {
+                      const next = [...form.conditions];
+                      next[index] = { ...condition, field: event.target.value as RuleCondition['field'] };
+                      setForm((prev) => ({ ...prev, conditions: next }));
+                    }}
+                    className="rounded-lg border border-white/10 bg-black/20 px-2 py-2 text-sm text-white focus:border-[#2970FF]/70 focus:outline-none"
+                  >
+                    <option value="payee">Payee</option>
+                    <option value="description">Description</option>
+                    <option value="counterparty">Counterparty</option>
+                    <option value="reference">Notifications</option>
+                    <option value="source">Source</option>
+                    <option value="amount">Amount</option>
+                  </select>
+                  <select
+                    value={condition.matchType}
+                    onChange={(event) => {
+                      const next = [...form.conditions];
+                      next[index] = { ...condition, matchType: event.target.value as RuleCondition['matchType'] };
+                      setForm((prev) => ({ ...prev, conditions: next }));
+                    }}
+                    className="rounded-lg border border-white/10 bg-black/20 px-2 py-2 text-sm text-white focus:border-[#2970FF]/70 focus:outline-none"
+                  >
+                    <option value="contains">Contains</option>
+                    <option value="startsWith">Starts with</option>
+                    <option value="endsWith">Ends with</option>
+                    <option value="equals">Equals</option>
+                    <option value="regex">Regex</option>
+                  </select>
+                  <input
+                    type={condition.field === 'amount' ? 'number' : 'text'}
+                    value={condition.value}
+                    onChange={(event) => {
+                      const next = [...form.conditions];
+                      next[index] = { ...condition, value: event.target.value };
+                      setForm((prev) => ({ ...prev, conditions: next }));
+                    }}
+                    className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white focus:border-[#2970FF]/70 focus:outline-none"
+                    placeholder="Value"
+                  />
+                  {form.conditions.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setForm((prev) => ({
+                          ...prev,
+                          conditions: prev.conditions.filter((_, i) => i !== index),
+                        }))
+                      }
+                      className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[11px] font-semibold text-white/70 transition hover:bg-white/10"
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
               ))}
-            </select>
-          </label>
-          <div className="grid grid-cols-2 gap-3 text-xs font-semibold text-white/60">
-            <label>
-              Match type
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-xs font-semibold text-white/60">
+              Main category
               <select
-                value={form.matchType}
-                onChange={handleChange('matchType')}
+                value={form.mainCategoryId}
+                onChange={(event) => {
+                  const nextMain = event.target.value;
+                  setForm((prev) => ({
+                    ...prev,
+                    mainCategoryId: nextMain,
+                    categoryId: prev.categoryId && subcategories[nextMain]?.some((cat) => cat.id === prev.categoryId)
+                      ? prev.categoryId
+                      : '',
+                  }));
+                }}
                 className="mt-1 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white focus:border-[#2970FF]/70 focus:outline-none"
               >
-                {MATCH_TYPES.map((type) => (
-                  <option key={type.value} value={type.value} className="bg-[#061124]">
-                    {type.label}
+                <option value="">Select main category</option>
+                {sortedMains.map((category) => (
+                  <option key={category.id} value={category.id} className="bg-[#061124]">
+                    {category.name}
                   </option>
                 ))}
               </select>
             </label>
-            <label>
-              Field
+            <label className="text-xs font-semibold text-white/60">
+              Sub category
               <select
-                value={form.matchField}
-                onChange={handleChange('matchField')}
-                className="mt-1 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white focus:border-[#2970FF]/70 focus:outline-none"
+                value={form.categoryId}
+                onChange={handleChange('categoryId')}
+                disabled={!form.mainCategoryId}
+                className="mt-1 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white focus:border-[#2970FF]/70 focus:outline-none disabled:opacity-60"
               >
-                {MATCH_FIELDS.map((field) => (
-                  <option key={field.value} value={field.value} className="bg-[#061124]">
-                    {field.label}
+                <option value="">Select sub category</option>
+                {availableSubs.map((category) => (
+                  <option key={category.id} value={category.id} className="bg-[#061124]">
+                    {category.name}
                   </option>
                 ))}
               </select>
             </label>
           </div>
+          <div className="grid grid-cols-2 gap-3 text-xs font-semibold text-white/60" />
           <div className="grid grid-cols-2 gap-3 text-xs font-semibold text-white/60">
             <label>
               Priority
@@ -316,6 +455,13 @@ export function RuleManager({ categoryOptions, draft, onDraftConsumed }: RuleMan
               <div className="flex gap-2">
                 <button
                   type="button"
+                  onClick={() => openPreview(rule.id)}
+                  className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-semibold text-white/70 transition hover:bg-white/10"
+                >
+                  Apply to queue
+                </button>
+                <button
+                  type="button"
                   onClick={() => handleEdit(rule.id)}
                   className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-semibold text-white/70 transition hover:bg-white/10"
                 >
@@ -345,6 +491,80 @@ export function RuleManager({ categoryOptions, draft, onDraftConsumed }: RuleMan
           </div>
         ))}
       </div>
+      {modalRuleId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[#050B18] p-6 shadow-2xl shadow-black/60">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-white">Apply rule to review queue</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setModalRuleId(null);
+                  setPreviewMatches([]);
+                }}
+                className="text-sm text-white/60 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+            {previewLoading ? (
+              <p className="mt-4 text-sm text-white/60">Loading matches…</p>
+            ) : previewMatches.length === 0 ? (
+              <p className="mt-4 text-sm text-white/60">No matching transactions found.</p>
+            ) : (
+              <div className="mt-4 space-y-3">
+                <p className="text-sm text-white/70">
+                  This rule will update {previewMatches.length} transaction
+                  {previewMatches.length === 1 ? '' : 's'} in the review queue.
+                </p>
+                <div className="max-h-80 overflow-y-auto rounded-xl border border-white/10">
+                  <table className="min-w-full text-left text-xs text-white/70">
+                    <thead className="bg-white/5 text-[11px] uppercase tracking-wide text-white/60">
+                      <tr>
+                        <th className="px-3 py-2">Date</th>
+                        <th className="px-3 py-2">Description</th>
+                        <th className="px-3 py-2">Amount</th>
+                        <th className="px-3 py-2">Account</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/10">
+                      {previewMatches.map((tx) => (
+                        <tr key={tx.id} className="bg-white/[0.02]">
+                          <td className="px-3 py-2">{new Date(tx.date).toLocaleDateString()}</td>
+                          <td className="px-3 py-2">{tx.description}</td>
+                          <td className="px-3 py-2">{(Number(tx.amountMinor ?? 0) / 100).toLocaleString(undefined, { style: 'currency', currency: tx.currency ?? 'EUR' })}</td>
+                          <td className="px-3 py-2">{tx.account?.name ?? tx.account?.identifier ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setModalRuleId(null);
+                  setPreviewMatches([]);
+                }}
+                className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={previewLoading || previewMatches.length === 0}
+                onClick={applyRule}
+                className="rounded-lg border border-[#2970FF] bg-[#2970FF] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1f5de0] disabled:opacity-60"
+              >
+                Apply rule
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -171,10 +171,11 @@ export const unlockLedgerPeriod = async (ledgerId: string) => {
 
 type RulePayload = {
   label: string;
-  pattern: string;
+  pattern?: string;
   categoryId: string;
   matchType?: string;
   matchField?: string;
+  conditions?: unknown;
   priority?: number;
   isActive?: boolean;
 };
@@ -234,4 +235,34 @@ export const deleteCategorizationRule = async (id: string): Promise<void> => {
   }
 
   return;
+};
+
+export const previewRule = async (id: string, scope: 'review-queue' | { importBatchId: string }) => {
+  const response = await fetch(`${API_BASE_URL}/api/rules/${id}/preview`, withUserHeader({
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(scope === 'review-queue' ? { scope } : { scope: 'import-batch', importBatchId: scope.importBatchId }),
+  }));
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to preview rule' }));
+    throw new Error(error.error ?? 'Failed to preview rule');
+  }
+
+  return response.json();
+};
+
+export const applyRule = async (id: string, transactionIds: string[]) => {
+  const response = await fetch(`${API_BASE_URL}/api/rules/${id}/apply`, withUserHeader({
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ transactionIds }),
+  }));
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to apply rule' }));
+    throw new Error(error.error ?? 'Failed to apply rule');
+  }
+
+  return response.json();
 };

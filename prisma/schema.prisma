@@ -174,33 +174,34 @@ model Transaction {
   ledger               Ledger?                         @relation(fields: [ledgerId], references: [id])
   user                 User                            @relation(fields: [userId], references: [id])
 
+  @@unique([userId, importFingerprint])
   @@index([userId, date])
   @@index([userId, normalizedKey, amountMinor])
   @@index([userId, accountId, date])
   @@index([classificationRuleId])
-  @@unique([userId, importFingerprint])
 }
 
 model CategorizationRule {
-  id            String         @id @default(uuid())
+  id            String          @id @default(uuid())
   userId        String
   importBatchId String?
   ledgerId      String?
   categoryId    String
   label         String
-  pattern       String
-  matchType     RuleMatchType  @default(regex)
-  matchField    RuleMatchField @default(description)
-  priority      Int            @default(100)
-  isActive      Boolean        @default(true)
+  pattern       String?
+  matchType     RuleMatchType?  @default(regex)
+  matchField    RuleMatchField? @default(description)
+  conditions    Json?           @default("[]")
+  priority      Int             @default(100)
+  isActive      Boolean         @default(true)
   createdBy     String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
   lastMatchedAt DateTime?
-  category      Category       @relation(fields: [categoryId], references: [id])
-  importBatch   ImportBatch?   @relation(fields: [importBatchId], references: [id])
-  ledger        Ledger?        @relation(fields: [ledgerId], references: [id])
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category      Category        @relation(fields: [categoryId], references: [id])
+  importBatch   ImportBatch?    @relation(fields: [importBatchId], references: [id])
+  ledger        Ledger?         @relation(fields: [ledgerId], references: [id])
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions  Transaction[]
 
   @@index([userId, isActive, priority])

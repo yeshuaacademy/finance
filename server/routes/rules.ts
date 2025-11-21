@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../prismaClient';
-import { createRule, deleteRule, updateRule } from '../services/ruleEngine';
+import { createRule, deleteRule, updateRule, previewRuleMatchesForUser, applyRuleToTransactions } from '../services/ruleEngine';
 import type { RuleMatchField, RuleMatchType } from '@prisma/client';
 
 const DEFAULT_USER_ID = process.env.DEFAULT_USER_ID ?? 'demo-user';
@@ -51,10 +51,10 @@ export const getRules = async (req: Request, res: Response) => {
 
 export const postRule = async (req: Request, res: Response) => {
   const userId = req.header('x-user-id') ?? DEFAULT_USER_ID;
-  const { label, pattern, categoryId } = req.body ?? {};
+  const { label, pattern, categoryId, conditions } = req.body ?? {};
 
-  if (!label || !pattern || !categoryId) {
-    return res.status(400).json({ error: 'label, pattern, and categoryId are required' });
+  if (!label || !categoryId) {
+    return res.status(400).json({ error: 'label and categoryId are required' });
   }
 
   const matchType = typeof req.body.matchType === 'string' && isMatchType(req.body.matchType)
@@ -78,6 +78,7 @@ export const postRule = async (req: Request, res: Response) => {
         priority,
         isActive,
         createdBy,
+        conditions,
       });
 
       return tx.categorizationRule.findUnique({
@@ -120,6 +121,12 @@ export const patchRule = async (req: Request, res: Response) => {
   if (typeof req.body.matchField === 'string' && isMatchField(req.body.matchField)) {
     updates.matchField = req.body.matchField;
   }
+  if (Array.isArray(req.body.conditions)) {
+    updates.conditions = req.body.conditions;
+    if (!updates.pattern && Array.isArray(req.body.conditions) && req.body.conditions.length) {
+      updates.pattern = req.body.conditions[0].value ?? updates.pattern;
+    }
+  }
 
   try {
     const rule = await prisma.$transaction(async (tx) => {
@@ -143,6 +150,64 @@ export const patchRule = async (req: Request, res: Response) => {
   }
 };
 
+export const previewRule = async (req: Request, res: Response) => {
+  const userId = req.header('x-user-id') ?? DEFAULT_USER_ID;
+  const ruleId = req.params.id;
+  const scope = req.body?.scope;
+  const importBatchId = req.body?.importBatchId;
+
+  if (!ruleId || !scope) {
+    return res.status(400).json({ error: 'ruleId and scope are required' });
+  }
+
+  try {
+    const matches = await prisma.$transaction((tx) =>
+      previewRuleMatchesForUser(tx, {
+        userId,
+        ruleId,
+        scope: scope === 'review-queue' ? 'review-queue' : { importBatchId },
+      }),
+    );
+    const safe = matches.map((tx) => ({
+      id: tx.id,
+      date: tx.date,
+      description: tx.description,
+      amountMinor: tx.amountMinor?.toString?.() ?? null,
+      currency: tx.currency,
+      account: tx.account ? { name: tx.account.name, identifier: tx.account.identifier } : null,
+      categoryId: tx.categoryId,
+      categoryName: tx.category?.name ?? null,
+    }));
+    return res.json(safe);
+  } catch (error) {
+    console.error('Failed to preview rule', error);
+    return res.status(500).json({ error: 'Unable to preview rule' });
+  }
+};
+
+export const applyRule = async (req: Request, res: Response) => {
+  const userId = req.header('x-user-id') ?? DEFAULT_USER_ID;
+  const ruleId = req.params.id;
+  const transactionIds: string[] = Array.isArray(req.body?.transactionIds) ? req.body.transactionIds : [];
+
+  if (!ruleId || !transactionIds.length) {
+    return res.status(400).json({ error: 'ruleId and transactionIds are required' });
+  }
+
+  try {
+    const count = await prisma.$transaction((tx) =>
+      applyRuleToTransactions(tx, {
+        userId,
+        ruleId,
+        transactionIds,
+      }),
+    );
+    return res.json({ updated: count });
+  } catch (error) {
+    console.error('Failed to apply rule', error);
+    return res.status(500).json({ error: 'Unable to apply rule' });
+  }
+};
 export const removeRule = async (req: Request, res: Response) => {
   const userId = req.header('x-user-id') ?? DEFAULT_USER_ID;
   const ruleId = req.params.id;
