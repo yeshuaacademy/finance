@@ -2,6 +2,7 @@
 const INTERNAL_API_ORIGIN = process.env.INTERNAL_API_ORIGIN ?? 'http://127.0.0.1:4000';
 
 const nextConfig = {
+	output: 'standalone',
 	reactStrictMode: true,
 	swcMinify: true,
 
