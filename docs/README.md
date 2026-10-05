@@ -43,6 +43,7 @@ For work that changes accounting, classification, review, or financial data cont
 | Approved target decision orchestration and provenance architecture | `docs/architecture/DECISION_ENGINE_ARCHITECTURE.md` |
 | Active run, handoff, validation evidence, and exact next task | `docs/finance-rebuild-run.md` |
 | Documentation ownership, status, migration, and archival rules | `docs/DOCUMENTATION_GOVERNANCE.md` |
+| Ledger customer/type dimensions, audit-count scope, and rollback contract | `docs/LEDGER_DIMENSIONS_AND_ROLLBACK.md` |
 
 The current architecture entrypoint for implemented accounting integrity and transaction review remains `docs/ACCOUNTING_INTEGRITY_AND_REVIEW_PREFILL.md`. The approved documents under `docs/architecture/` define durable invariants and target Phase 3–7 boundaries; they do not claim those future capabilities are implemented and do not supersede the current accounting/review contract.
 
