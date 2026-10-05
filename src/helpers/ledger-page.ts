@@ -78,24 +78,40 @@ export const resolveActiveMonth = (monthOptions: MonthOption[], selectedMonth: s
 export const filterTransactionsByMonth = (transactions: LedgerTransaction[], monthKey: string) =>
   transactions.filter((transaction) => getMonthKeyForTransaction(transaction) === monthKey);
 
-export const filterLedgerTransactions = (transactions: LedgerTransaction[], query: string) => {
+export type LedgerDimensionFilters = {
+  clientId?: string | null;
+  transactionTypeId?: string | null;
+};
+
+const matchesDimension = (filter: string | null | undefined, value: string | null): boolean =>
+  filter === undefined || (filter === null ? value === null : value === filter);
+
+export const filterLedgerTransactions = (
+  transactions: LedgerTransaction[],
+  query: string,
+  dimensions: LedgerDimensionFilters = {},
+) => {
   const normalized = query.trim().toLowerCase();
 
-  if (!normalized) {
-    return transactions;
-  }
-
-  return transactions.filter((transaction) =>
-    [
+  return transactions.filter((transaction) => {
+    if (!matchesDimension(dimensions.clientId, transaction.clientId ?? null)
+      || !matchesDimension(dimensions.transactionTypeId, transaction.transactionTypeId ?? null)) {
+      return false;
+    }
+    if (!normalized) return true;
+    return [
       transaction.description,
       transaction.counterpartyAccount,
       transaction.notificationDetail,
       transaction.categoryName,
       transaction.mainCategoryName,
+      transaction.clientCode,
+      transaction.clientName,
+      transaction.transactionTypeName,
     ]
       .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(normalized)),
-  );
+      .some((value) => String(value).toLowerCase().includes(normalized));
+  });
 };
 
 export const summarizeLedgerTransactions = (transactions: LedgerTransaction[]): LedgerPeriodSummary => {

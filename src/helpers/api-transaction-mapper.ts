@@ -19,6 +19,11 @@ export type ApiLedgerTransaction = {
   sourceFile?: string | null;
   categoryId?: string | null;
   categoryName?: string | null;
+  clientId?: string | null;
+  clientCode?: string | null;
+  clientName?: string | null;
+  transactionTypeId?: string | null;
+  transactionTypeName?: string | null;
   mainCategoryName?: string | null;
   ledgerMonth?: number | null;
   ledgerYear?: number | null;
@@ -52,6 +57,11 @@ export type LedgerTransaction = {
   counterpartyAccount: string | null;
   categoryId: string | null;
   categoryName: string | null;
+  clientId?: string | null;
+  clientCode?: string | null;
+  clientName?: string | null;
+  transactionTypeId?: string | null;
+  transactionTypeName?: string | null;
   mainCategoryId: string | null;
   mainCategoryName: string | null;
   ledgerMonth: number;
@@ -135,6 +145,11 @@ export const mapApiTransaction = (tx: ApiLedgerTransaction): LedgerTransaction =
     counterpartyAccount: tx.counterpartyAccount ?? tx.counterparty ?? null,
     categoryId: tx.categoryId ?? null,
     categoryName: subName,
+    clientId: tx.clientId ?? null,
+    clientCode: tx.clientCode ?? null,
+    clientName: tx.clientName ?? null,
+    transactionTypeId: tx.transactionTypeId ?? null,
+    transactionTypeName: tx.transactionTypeName ?? null,
     mainCategoryId,
     mainCategoryName: mainName,
     ledgerMonth,

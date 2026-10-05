@@ -92,6 +92,19 @@ describe('ledger page helpers', () => {
     expect(filterLedgerTransactions(transactions, 'niets')).toEqual([]);
   });
 
+  it('filters transactions by customer and transaction type, including unassigned rows', () => {
+    const transactions = [
+      makeTx({ id: 'ya-gift', clientId: 'client-ya', clientName: 'YA', transactionTypeId: 'type-gift', transactionTypeName: 'Schenking' }),
+      makeTx({ id: 'ftk-gift', clientId: 'client-ftk', clientName: 'FTK', transactionTypeId: 'type-gift', transactionTypeName: 'Schenking' }),
+      makeTx({ id: 'unassigned', clientId: null, transactionTypeId: null }),
+    ];
+
+    expect(filterLedgerTransactions(transactions, '', { clientId: 'client-ya' }).map((tx) => tx.id)).toEqual(['ya-gift']);
+    expect(filterLedgerTransactions(transactions, '', { transactionTypeId: 'type-gift' }).map((tx) => tx.id)).toEqual(['ya-gift', 'ftk-gift']);
+    expect(filterLedgerTransactions(transactions, '', { clientId: null, transactionTypeId: null }).map((tx) => tx.id)).toEqual(['unassigned']);
+    expect(filterLedgerTransactions(transactions, 'schenking').map((tx) => tx.id)).toEqual(['ya-gift', 'ftk-gift']);
+  });
+
   it('chooses category labels in the same priority order as the ledger table', () => {
     expect(getLedgerCategoryLabel(makeTx({ mainCategoryName: 'Inkomsten', categoryName: 'Giften' }))).toBe('Inkomsten');
     expect(getLedgerCategoryLabel(makeTx({ categoryName: 'Giften' }))).toBe('Giften');

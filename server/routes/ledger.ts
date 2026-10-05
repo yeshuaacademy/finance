@@ -191,6 +191,22 @@ export const getLedger = async (req: Request, res: Response) => {
       where: { userId },
       include: {
         category: true,
+        project: {
+          select: { id: true, code: true, name: true },
+        },
+        transactionType: {
+          select: { id: true, literalName: true },
+        },
+        transactionBooking: {
+          select: {
+            projectId: true,
+            transactionTypeId: true,
+            literalProjectLabel: true,
+            literalTypeLabel: true,
+            project: { select: { code: true, name: true } },
+            transactionType: { select: { literalName: true } },
+          },
+        },
         ledger: true,
         account: true,
         classificationRule: {
@@ -266,6 +282,17 @@ export const getLedger = async (req: Request, res: Response) => {
         sourceFile: tx.sourceFile,
         categoryId: tx.categoryId,
         categoryName: tx.category?.name ?? null,
+        clientId: tx.transactionBooking?.projectId ?? tx.projectId ?? null,
+        clientCode: tx.transactionBooking?.project?.code ?? tx.project?.code ?? null,
+        clientName: tx.transactionBooking?.literalProjectLabel
+          ?? tx.transactionBooking?.project?.name
+          ?? tx.project?.name
+          ?? null,
+        transactionTypeId: tx.transactionBooking?.transactionTypeId ?? tx.transactionTypeId ?? null,
+        transactionTypeName: tx.transactionBooking?.literalTypeLabel
+          ?? tx.transactionBooking?.transactionType?.literalName
+          ?? tx.transactionType?.literalName
+          ?? null,
         ledgerMonth: tx.ledger?.month ?? null,
         ledgerYear: tx.ledger?.year ?? null,
         createdAt: tx.createdAt,

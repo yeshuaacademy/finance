@@ -105,29 +105,89 @@ function StateCard({ title, body }: { title: string; body: string }) {
 
 function TransactionTable({ transactions }: { transactions: LedgerTransaction[] }) {
   const [query, setQuery] = useState('');
-  const filtered = useMemo(() => filterLedgerTransactions(transactions, query), [query, transactions]);
+  const [clientFilter, setClientFilter] = useState<string | null | undefined>(undefined);
+  const [typeFilter, setTypeFilter] = useState<string | null | undefined>(undefined);
+  const clients = useMemo(() => {
+    const byId = new Map<string, { id: string; label: string }>();
+    transactions.forEach((transaction) => {
+      if (!transaction.clientId) return;
+      const name = transaction.clientName ?? transaction.clientCode ?? 'Onbekende klant';
+      byId.set(transaction.clientId, {
+        id: transaction.clientId,
+        label: transaction.clientCode && transaction.clientCode !== name
+          ? `${transaction.clientCode} · ${name}`
+          : name,
+      });
+    });
+    return Array.from(byId.values()).sort((left, right) => left.label.localeCompare(right.label, 'nl'));
+  }, [transactions]);
+  const transactionTypes = useMemo(() => {
+    const byId = new Map<string, { id: string; label: string }>();
+    transactions.forEach((transaction) => {
+      if (!transaction.transactionTypeId) return;
+      byId.set(transaction.transactionTypeId, {
+        id: transaction.transactionTypeId,
+        label: transaction.transactionTypeName ?? 'Onbekend type',
+      });
+    });
+    return Array.from(byId.values()).sort((left, right) => left.label.localeCompare(right.label, 'nl'));
+  }, [transactions]);
+  const hasUnassignedClient = transactions.some((transaction) => !transaction.clientId);
+  const hasUnassignedType = transactions.some((transaction) => !transaction.transactionTypeId);
+  const filtered = useMemo(
+    () => filterLedgerTransactions(transactions, query, {
+      clientId: clientFilter,
+      transactionTypeId: typeFilter,
+    }),
+    [clientFilter, query, transactions, typeFilter],
+  );
 
   return (
     <section id="transacties" className="rounded-[2rem] border border-[#ded5c8] bg-[#fbf8f2] p-6 shadow-[0_24px_70px_rgba(87,67,45,0.08)]">
       <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-sm font-medium text-[#7d6d5a]">Transacties</p>
-          <h3 className="mt-1 text-2xl font-semibold tracking-[-0.04em]">Details alleen wanneer nodig</h3>
+          <h3 className="mt-1 text-2xl font-semibold tracking-[-0.04em]">Klant, type en categorie</h3>
         </div>
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Zoeken"
-          className="rounded-2xl border border-[#ded5c8] bg-[#f5f1ea] px-4 py-3 text-sm outline-none focus:border-[#1f5f4a]"
-        />
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Zoek omschrijving, klant, type of categorie"
+            aria-label="Zoeken op omschrijving, klant, type of categorie"
+            className="min-w-[15rem] rounded-2xl border border-[#ded5c8] bg-[#f5f1ea] px-4 py-3 text-sm outline-none focus:border-[#1f5f4a]"
+          />
+          <select
+            aria-label="Filter op klant"
+            value={clientFilter === undefined ? '' : clientFilter === null ? '__unassigned__' : clientFilter}
+            onChange={(event) => setClientFilter(event.target.value === '' ? undefined : event.target.value === '__unassigned__' ? null : event.target.value)}
+            className="rounded-2xl border border-[#ded5c8] bg-[#f5f1ea] px-3 py-3 text-sm outline-none focus:border-[#1f5f4a]"
+          >
+            <option value="">Alle klanten</option>
+            {hasUnassignedClient ? <option value="__unassigned__">Klant niet toegewezen</option> : null}
+            {clients.map((client) => <option key={client.id} value={client.id}>{client.label}</option>)}
+          </select>
+          <select
+            aria-label="Filter op transactietype"
+            value={typeFilter === undefined ? '' : typeFilter === null ? '__unassigned__' : typeFilter}
+            onChange={(event) => setTypeFilter(event.target.value === '' ? undefined : event.target.value === '__unassigned__' ? null : event.target.value)}
+            className="rounded-2xl border border-[#ded5c8] bg-[#f5f1ea] px-3 py-3 text-sm outline-none focus:border-[#1f5f4a]"
+          >
+            <option value="">Alle typen</option>
+            {hasUnassignedType ? <option value="__unassigned__">Type niet toegewezen</option> : null}
+            {transactionTypes.map((type) => <option key={type.id} value={type.id}>{type.label}</option>)}
+          </select>
+        </div>
       </div>
       {filtered.length ? (
         <div className="overflow-x-auto rounded-[1.5rem] border border-[#ded5c8]">
-          <table className="w-full min-w-[820px] border-collapse text-left text-sm">
+          <table className="w-full min-w-[1120px] border-collapse text-left text-sm">
             <thead className="bg-[#f5f1ea] text-xs uppercase tracking-[0.14em] text-[#8a7965]">
               <tr>
                 <th className="px-4 py-3 font-semibold">Datum</th>
                 <th className="px-4 py-3 font-semibold">Omschrijving</th>
+                <th className="px-4 py-3 font-semibold">Klant</th>
+                <th className="px-4 py-3 font-semibold">Transactietype</th>
                 <th className="px-4 py-3 font-semibold">Categorie</th>
                 <th className="px-4 py-3 font-semibold">Status</th>
                 <th className="px-4 py-3 text-right font-semibold">Bedrag</th>
@@ -150,6 +210,8 @@ function TransactionTable({ transactions }: { transactions: LedgerTransaction[] 
                         </div>
                       </details>
                     </td>
+                    <td className="px-4 py-4 text-[#6f6253]">{transaction.clientName ?? transaction.clientCode ?? '—'}</td>
+                    <td className="px-4 py-4 text-[#6f6253]">{transaction.transactionTypeName ?? '—'}</td>
                     <td className="px-4 py-4 text-[#6f6253]">{getLedgerCategoryLabel(transaction)}</td>
                     <td className="px-4 py-4">
                       <span className={`rounded-full px-3 py-1 text-xs font-semibold ${transaction.needsManualCategory ? 'bg-[#f5e9c8] text-[#7a5512]' : 'bg-[#e7f0e7] text-[#1f5f4a]'}`}>

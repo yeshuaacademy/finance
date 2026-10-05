@@ -183,6 +183,29 @@ describe('create endpoints', () => {
     const body = res.body as { direction: string };
     expect(body.direction).toBe('debit');
   });
+
+  it('capitalizes the first character of admin-created category names', async () => {
+    mocks.requireAdmin.mockResolvedValue(adminActor);
+    mocks.categoryCreate.mockResolvedValue({ id: 'c1', name: 'Schenking FTK' });
+    const res = makeRes();
+    await createCategory(makeReq({ body: { name: 'schenking FTK' } }), res);
+    expect(res.statusCode).toBe(201);
+    expect(mocks.categoryCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ name: 'Schenking FTK' }),
+    }));
+  });
+
+  it('capitalizes category renames at the server boundary', async () => {
+    mocks.requireAdmin.mockResolvedValue(adminActor);
+    mocks.categoryFindUnique.mockResolvedValue({ id: 'c1', workspaceId: WORKSPACE_ID, name: 'oude naam', isActive: true });
+    mocks.categoryUpdate.mockResolvedValue({ id: 'c1', name: 'Nieuwe naam' });
+    const res = makeRes();
+    await updateCategory(makeReq({ params: { id: 'c1' }, body: { name: 'nieuwe naam' } }), res);
+    expect(res.statusCode).toBe(200);
+    expect(mocks.categoryUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ name: 'Nieuwe naam' }),
+    }));
+  });
 });
 
 // ─── Deactivation safeguards ──────────────────────────────────────────────

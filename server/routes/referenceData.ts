@@ -10,6 +10,12 @@ const isUniqueConstraintError = (err: unknown): boolean =>
 const readString = (v: unknown): string | null =>
   typeof v === 'string' && v.trim() ? v.trim() : null;
 
+// Admin-created labels follow the UI convention. Historical/imported labels remain source-faithful.
+export const capitalizeCategoryName = (name: string): string => {
+  const [first, ...remaining] = Array.from(name);
+  return first ? `${first.toLocaleUpperCase('nl-NL')}${remaining.join('')}` : name;
+};
+
 const readOptionalInt = (v: unknown): number | null => {
   if (v === undefined || v === null || v === '') return null;
   const n = Number(v);
@@ -133,7 +139,8 @@ export const createCategory = async (req: Request, res: Response) => {
   if (!workspaceId) return res.status(503).json({ error: 'Werkruimte niet geconfigureerd.' });
 
   const body = req.body as Record<string, unknown>;
-  const name = readString(body.name);
+  const rawName = readString(body.name);
+  const name = rawName ? capitalizeCategoryName(rawName) : null;
   const color = readString(body.color);
   const sortOrder = readOptionalInt(body.sortOrder);
   if (!name) return res.status(400).json({ error: 'Categorie-naam is verplicht.' });
@@ -162,7 +169,8 @@ export const updateCategory = async (req: Request, res: Response) => {
   if (!id) return res.status(400).json({ error: 'Categorie-id ontbreekt.' });
 
   const body = req.body as Record<string, unknown>;
-  const name = readString(body.name);
+  const rawName = readString(body.name);
+  const name = rawName ? capitalizeCategoryName(rawName) : null;
   const color = readString(body.color);
   const sortOrder = readOptionalInt(body.sortOrder);
   const isActive = readOptionalBool(body.isActive);
@@ -194,7 +202,10 @@ export const updateCategory = async (req: Request, res: Response) => {
       select: { id: true, name: true, color: true, sortOrder: true, isActive: true, isHistorical: true },
     });
     return res.json(item);
-  } catch {
+  } catch (err: unknown) {
+    if (isUniqueConstraintError(err)) {
+      return res.status(409).json({ error: `Categorie '${name ?? 'de gekozen naam'}' bestaat al.` });
+    }
     return res.status(500).json({ error: 'Categorie kon niet worden bijgewerkt.' });
   }
 };
