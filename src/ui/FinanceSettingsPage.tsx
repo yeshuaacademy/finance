@@ -26,11 +26,14 @@ import {
   postDirectionInferenceExecute,
   postOwnerHistoryProposalDryRun,
   postOwnerHistoryProposalExecute,
+  postCategoryNormalizationAction,
   type ReferenceProjectItem,
   type ReferenceCategoryItem,
   type ReferenceTransactionTypeItem,
   type DirectionInferenceResponse,
   type OwnerHistoryProposalResponse,
+  type CategoryNormalizationResponse,
+  type CategoryNormalizationSummary,
 } from '@/libs/api';
 import { useLedger } from '@/context/ledger-context';
 import {
@@ -408,6 +411,8 @@ function CategoriesPanel({ admin }: { admin: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [newName, setNewName] = useState('');
+  const currentItems = items.filter((item) => item.isActive);
+  const archivedItems = items.filter((item) => !item.isActive);
 
   const load = () => {
     fetchReferenceCategories()
@@ -458,17 +463,35 @@ function CategoriesPanel({ admin }: { admin: boolean }) {
       )}
       {error && <p className="mt-3 rounded-xl bg-[#f7e9e4] p-3 text-sm text-[#7b4b3a]">{error}</p>}
       <div className="mt-4 space-y-2">
-        {items.map((item) => (
-          <div key={item.id} className={`flex items-center justify-between rounded-xl px-3 py-2 text-sm ${item.isActive ? 'bg-[#f5f1ea]' : 'bg-[#fdf5f5] opacity-60'}`}>
+        <p className="px-1 text-xs font-semibold uppercase tracking-wide text-[#7d6d5a]">Actieve categorieën · {currentItems.length}</p>
+        {currentItems.map((item) => (
+          <div key={item.id} className="flex items-center justify-between rounded-xl bg-[#f5f1ea] px-3 py-2 text-sm">
             <span>{item.name}{item.isHistorical ? <span className="ml-2 text-xs text-[#8a7965]">(historisch)</span> : null}</span>
             {admin && (
               <button type="button" disabled={busy} onClick={() => toggle(item)} className="ml-3 rounded-full border border-[#d7cdbf] px-2 py-0.5 text-xs font-semibold text-[#6f6253] disabled:opacity-40">
-                {item.isActive ? 'Deactiveren' : 'Activeren'}
+                Deactiveren
               </button>
             )}
           </div>
         ))}
-        {!items.length && <p className="rounded-xl bg-[#f5f1ea] p-3 text-sm text-[#6f6253]">Nog geen categorieën.</p>}
+        {!currentItems.length && <p className="rounded-xl bg-[#f5f1ea] p-3 text-sm text-[#6f6253]">Geen actieve categorieën.</p>}
+        {archivedItems.length > 0 && (
+          <details className="rounded-xl border border-[#ded5c8] bg-[#fbf8f2] p-3">
+            <summary className="cursor-pointer text-sm font-semibold text-[#6f6253]">Historisch of gedeactiveerd · {archivedItems.length}</summary>
+            <div className="mt-3 space-y-2">
+              {archivedItems.map((item) => (
+                <div key={item.id} className="flex items-center justify-between rounded-xl bg-[#f5f1ea] px-3 py-2 text-sm opacity-75">
+                  <span>{item.name}{item.isHistorical ? <span className="ml-2 text-xs text-[#8a7965]">(historisch)</span> : null}</span>
+                  {admin && (
+                    <button type="button" disabled={busy} onClick={() => toggle(item)} className="ml-3 rounded-full border border-[#d7cdbf] px-2 py-0.5 text-xs font-semibold text-[#6f6253] disabled:opacity-40">
+                      {item.isActive ? 'Deactiveren' : 'Activeren'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
       </div>
     </section>
   );
@@ -572,6 +595,13 @@ function OperatorToolsPanel({ admin }: { admin: boolean }) {
   const [propBusy, setPropBusy] = useState(false);
   const [dirError, setDirError] = useState<string | null>(null);
   const [propError, setPropError] = useState<string | null>(null);
+  const [categoryResult, setCategoryResult] = useState<CategoryNormalizationResponse | null>(null);
+  const [categoryConfirmHash, setCategoryConfirmHash] = useState('');
+  const [categoryBusy, setCategoryBusy] = useState(false);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [rollbackOperationId, setRollbackOperationId] = useState('');
+  const [rollbackResult, setRollbackResult] = useState<CategoryNormalizationResponse | null>(null);
+  const [rollbackConfirmHash, setRollbackConfirmHash] = useState('');
 
   useEffect(() => {
     if (!admin) return;
@@ -581,6 +611,9 @@ function OperatorToolsPanel({ admin }: { admin: boolean }) {
     postOwnerHistoryProposalDryRun()
       .then((r) => setPropResult(r))
       .catch((e) => setPropError(e instanceof Error ? e.message : 'Laden mislukt.'));
+    postCategoryNormalizationAction({ action: 'dry-run' })
+      .then((r) => setCategoryResult(r))
+      .catch((e) => setCategoryError(e instanceof Error ? e.message : 'Laden mislukt.'));
   }, [admin]);
 
   const runDirDryRun = async () => {
@@ -613,6 +646,41 @@ function OperatorToolsPanel({ admin }: { admin: boolean }) {
     finally { setPropBusy(false); }
   };
 
+  const runCategoryDryRun = async () => {
+    setCategoryBusy(true); setCategoryError(null); setCategoryConfirmHash('');
+    try { setCategoryResult(await postCategoryNormalizationAction({ action: 'dry-run' })); }
+    catch (e) { setCategoryError(e instanceof Error ? e.message : 'Mislukt.'); }
+    finally { setCategoryBusy(false); }
+  };
+
+  const runCategoryExecute = async () => {
+    if (!categoryResult || categoryConfirmHash.trim() !== categoryResult.planHash) return;
+    setCategoryBusy(true); setCategoryError(null);
+    try {
+      const result = await postCategoryNormalizationAction({ action: 'apply', confirmedPlanHash: categoryConfirmHash.trim() });
+      setCategoryResult(result);
+      setCategoryConfirmHash('');
+      if (result.operationId) setRollbackOperationId(result.operationId);
+    } catch (e) { setCategoryError(e instanceof Error ? e.message : 'Mislukt.'); }
+    finally { setCategoryBusy(false); }
+  };
+
+  const runRollbackDryRun = async () => {
+    if (!rollbackOperationId.trim()) return;
+    setCategoryBusy(true); setCategoryError(null); setRollbackConfirmHash('');
+    try { setRollbackResult(await postCategoryNormalizationAction({ action: 'rollback-dry-run', operationId: rollbackOperationId.trim() })); }
+    catch (e) { setCategoryError(e instanceof Error ? e.message : 'Mislukt.'); }
+    finally { setCategoryBusy(false); }
+  };
+
+  const runRollback = async () => {
+    if (!rollbackResult || rollbackConfirmHash.trim() !== rollbackResult.planHash) return;
+    setCategoryBusy(true); setCategoryError(null);
+    try { setRollbackResult(await postCategoryNormalizationAction({ action: 'rollback', operationId: rollbackOperationId.trim(), confirmedPlanHash: rollbackConfirmHash.trim() })); setRollbackConfirmHash(''); }
+    catch (e) { setCategoryError(e instanceof Error ? e.message : 'Mislukt.'); }
+    finally { setCategoryBusy(false); }
+  };
+
   if (!admin) return null;
 
   return (
@@ -622,6 +690,24 @@ function OperatorToolsPanel({ admin }: { admin: boolean }) {
       <p className="mt-2 text-sm leading-6 text-[#6f6253]">
         Voer altijd eerst een dry-run uit. Kopieer de planhash naar het bevestigingsveld en klik daarna uitvoeren. Elke uitvoer is gecontroleerd idempotent.
       </p>
+
+      {/* Historical category normalization */}
+      <CategoryNormalizationControls
+        busy={categoryBusy}
+        error={categoryError}
+        result={categoryResult}
+        confirmHash={categoryConfirmHash}
+        onConfirmHash={setCategoryConfirmHash}
+        onDryRun={runCategoryDryRun}
+        onExecute={runCategoryExecute}
+        operationId={rollbackOperationId}
+        onOperationId={setRollbackOperationId}
+        rollbackResult={rollbackResult}
+        rollbackConfirmHash={rollbackConfirmHash}
+        onRollbackConfirmHash={setRollbackConfirmHash}
+        onRollbackDryRun={runRollbackDryRun}
+        onRollback={runRollback}
+      />
 
       {/* Direction inference */}
       <div className="mt-6 rounded-[1.5rem] border border-[#ded5c8] bg-[#fbf8f2] p-5">
@@ -720,6 +806,109 @@ function OperatorToolsPanel({ admin }: { admin: boolean }) {
         )}
       </div>
     </section>
+  );
+}
+
+function formatMinorUnits(value: string): string {
+  const minor = BigInt(value);
+  const sign = minor < 0n ? '-' : '';
+  const absolute = minor < 0n ? -minor : minor;
+  return `${sign}€ ${(absolute / 100n).toLocaleString('nl-NL')},${String(absolute % 100n).padStart(2, '0')}`;
+}
+
+function CategoryNormalizationControls(props: {
+  busy: boolean;
+  error: string | null;
+  result: CategoryNormalizationResponse | null;
+  confirmHash: string;
+  onConfirmHash: (value: string) => void;
+  onDryRun: () => void;
+  onExecute: () => void;
+  operationId: string;
+  onOperationId: (value: string) => void;
+  rollbackResult: CategoryNormalizationResponse | null;
+  rollbackConfirmHash: string;
+  onRollbackConfirmHash: (value: string) => void;
+  onRollbackDryRun: () => void;
+  onRollback: () => void;
+}) {
+  const summary = props.result?.summary && 'labels' in props.result.summary
+    ? props.result.summary as CategoryNormalizationSummary
+    : null;
+  return (
+    <div className="mt-6 rounded-[1.5rem] border border-[#ded5c8] bg-[#fbf8f2] p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="font-semibold">Historische categorieën normaliseren</p>
+          <p className="text-xs text-[#7d6d5a]">Kapitaliseert bestaande labels, voegt alleen case-duplicaten samen en archiveert ongebruikte categorieën zonder historische rapporten te wijzigen.</p>
+        </div>
+        <button type="button" disabled={props.busy} onClick={props.onDryRun} className="rounded-xl border border-[#d7cdbf] px-3 py-1.5 text-xs font-semibold text-[#574b3f] disabled:opacity-40">
+          {props.busy ? 'Laden…' : 'Dry-run vernieuwen'}
+        </button>
+      </div>
+      {props.error && <p className="mt-3 rounded-xl bg-[#f7e9e4] p-3 text-sm text-[#7b4b3a]">{props.error}</p>}
+      {props.result && summary && (
+        <div className="mt-3 space-y-3 text-sm">
+          <div className="flex flex-wrap gap-3 rounded-xl bg-[#f5f1ea] px-3 py-2">
+            <span>Transacties: <strong>{summary.transactionCount}</strong></span>
+            <span>Inkomsten: <strong>{formatMinorUnits(summary.incomeMinor)}</strong></span>
+            <span>Uitgaven: <strong>{formatMinorUnits(summary.expenseMinor)}</strong></span>
+            <span>Netto: <strong>{formatMinorUnits(summary.netMinor)}</strong></span>
+            <span>Labels: <strong>{summary.lowercaseCategoryCount}</strong></span>
+            <span>Samenvoegingen: <strong>{summary.mergeCategoryCount}</strong></span>
+            <span>Regels: <strong>{summary.ruleCount}</strong></span>
+            <span>Suggesties: <strong>{summary.suggestionCount}</strong></span>
+            <span>Te archiveren: <strong>{summary.retireCategoryCount}</strong></span>
+          </div>
+          <div className="rounded-xl bg-[#f5f1ea] px-3 py-2 text-xs">
+            <span className="text-[#8a7965]">Status: </span><strong>{props.result.status}</strong>
+            <span className="ml-3 text-[#8a7965]">SHA-256 planhash: </span><code className="break-all">{props.result.planHash}</code>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-[#ded5c8]">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-[#f5f1ea] text-[#6f6253]"><tr><th className="p-2">Huidig label</th><th className="p-2">Doel</th><th className="p-2">Aantal</th><th className="p-2">Per jaar</th><th className="p-2">Netto</th></tr></thead>
+              <tbody>{summary.labels.map((label) => (
+                <tr key={label.from} className="border-t border-[#ded5c8]">
+                  <td className="p-2">{label.from}</td><td className="p-2">{label.to}{label.merge ? ' (samenvoegen)' : ''}</td><td className="p-2">{label.transactionCount}</td>
+                  <td className="p-2">{Object.entries(label.countByYear).sort(([a], [b]) => a.localeCompare(b)).map(([year, count]) => `${year}: ${count} · ${formatMinorUnits(label.netByYearMinor[year] ?? '0')}`).join(' · ') || '—'}</td><td className="p-2">{formatMinorUnits(label.netMinor)}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+          {summary.emptyCategories.some((category) => category.willDeactivate) && (
+            <details className="rounded-xl border border-[#ded5c8] bg-[#f5f1ea] p-3 text-xs">
+              <summary className="cursor-pointer font-semibold">Ongebruikte categorieën die worden gearchiveerd · {summary.emptyCategories.filter((category) => category.willDeactivate).length}</summary>
+              <ul className="mt-2 space-y-1 text-[#6f6253]">
+                {summary.emptyCategories.filter((category) => category.willDeactivate).map((category) => <li key={category.name}>{category.name}</li>)}
+              </ul>
+            </details>
+          )}
+          <p className="text-xs text-[#7d6d5a]">
+            Bankfeiten en bevroren rapporten blijven ongewijzigd. Boekingsbron, regel en historische match blijven behouden; elke bijgewerkte boeking krijgt een auditregel. Alleen als de bestaande beslissingshistorie de huidige bevestigde boeking volledig ondersteunt, wordt ook een aanvullende wijzigingsbeslissing vastgelegd.
+          </p>
+          {props.result.blockers?.length ? <ul className="rounded-xl bg-[#f7e9e4] p-3 text-xs text-[#7b4b3a]">{props.result.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul> : null}
+          {props.result.status === 'DRY_RUN_COMPLETE' && !props.result.writesPerformed && (
+            <div className="flex flex-wrap gap-2">
+              <input value={props.confirmHash} onChange={(event) => props.onConfirmHash(event.target.value)} placeholder="Plak planhash ter bevestiging" className="min-w-[220px] flex-1 rounded-xl border border-[#d7cdbf] bg-white px-3 py-2 font-mono text-xs" />
+              <button type="button" disabled={props.busy || props.confirmHash.trim() !== props.result.planHash} onClick={props.onExecute} className="rounded-xl bg-amber-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-40">Normaliseren</button>
+            </div>
+          )}
+          {props.result.operationId && <p className="rounded-xl bg-[#edf5ec] p-3 text-xs text-[#1f5f4a]">Uitgevoerd · rollback-id: <code className="break-all">{props.result.operationId}</code></p>}
+          {(props.operationId || props.result.operationId) && (
+            <div className="space-y-2 rounded-xl border border-[#ded5c8] p-3">
+              <p className="text-xs font-semibold">Rollback (nieuwe, geauditeerde omkering)</p>
+              <div className="flex flex-wrap gap-2">
+                <input value={props.operationId} onChange={(event) => props.onOperationId(event.target.value)} placeholder="Rollback-id" className="min-w-[220px] flex-1 rounded-xl border border-[#d7cdbf] bg-white px-3 py-2 font-mono text-xs" />
+                <button type="button" disabled={props.busy || !props.operationId.trim()} onClick={props.onRollbackDryRun} className="rounded-xl border border-[#d7cdbf] px-3 py-2 text-xs font-semibold">Rollback dry-run</button>
+              </div>
+              {props.rollbackResult && <div className="space-y-2 text-xs"><p>Status: <strong>{props.rollbackResult.status}</strong> · Planhash: <code className="break-all">{props.rollbackResult.planHash}</code></p>{props.rollbackResult.blockers?.length ? <p className="text-[#914f35]">{props.rollbackResult.blockers.join(' · ')}</p> : null}
+                {props.rollbackResult.status === 'ROLLBACK_DRY_RUN_COMPLETE' && <div className="flex flex-wrap gap-2"><input value={props.rollbackConfirmHash} onChange={(event) => props.onRollbackConfirmHash(event.target.value)} placeholder="Plak rollback-hash" className="min-w-[220px] flex-1 rounded-xl border border-[#d7cdbf] bg-white px-3 py-2 font-mono text-xs" /><button type="button" disabled={props.busy || props.rollbackConfirmHash.trim() !== props.rollbackResult.planHash} onClick={props.onRollback} className="rounded-xl border border-[#914f35] px-4 py-2 text-xs font-semibold text-[#914f35] disabled:opacity-40">Rollback uitvoeren</button></div>}
+              </div>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -41,15 +41,24 @@ Thus the proposed normalization concerns 499 transactions: reassign the 372 lowe
 
 The earlier differing figures were caused by using different scopes, not evidence that production data was changing. This is an aggregate checkpoint, not a durable transaction export or authorization to alter historical records.
 
-## Financial-data correction boundary
+## Category normalization and rollback
 
-This release performs no financial-data correction. In particular, it does not move `Algemeen` bookings to `YA`, consolidate category IDs, rename existing historical categories, or deactivate/delete reference records.
+The category-normalization release adds an admin-only, hash-gated production operation at `/api/operator/category-normalization`, exposed in Settings → Operator Tools. The operation is separate from the earlier transaction-list UI release. It is designed to:
 
-Any later correction must be a separately reviewed, explicitly approved operation. Before applying it, capture a protected transaction-level before-image containing transaction/booking IDs, exact date and amount, all three dimension IDs and literal labels, booking source/rule/history links, evidence/hash, and relevant review-decision and report-snapshot references. Keep that evidence outside Git and redact it from logs.
+- capitalize the first Unicode lowercase character in every category label in the workspace;
+- merge a lowercase label into an already-existing exact capitalized label (for example `schenking FTK` into `Schenking FTK`), preserving the canonical category ID;
+- preserve category identity when no exact canonical label exists, while updating the current transaction/booking label;
+- mark active categories with no current transaction, booking, rule, or suggestion references as inactive/historical unless the category is the receiving canonical target of a merge; retain retired categories in the collapsed archive rather than deleting them;
+- preserve bank facts, booking source/rule/history/evidence fields, and frozen report snapshot rows and hashes;
+- write before/after audit records and a compensating `CHANGE_BOOKING` decision for current bookings with valid decision provenance.
 
-The ordinary one-transaction booking-assignment path is not a safe bulk historical-normalization mechanism: it converts the booking to manual and clears rule/history provenance. Do not use it for category/customer normalization unless a purpose-built correction path first proves that it preserves provenance and records an auditable before/after correction.
+The apply endpoint re-computes the complete plan, requires the exact hash from a fresh dry-run, repeats that check inside a serializable database transaction, and aborts on detected drift or inconsistent/cross-workspace rows. It also blocks target-name collisions without a canonical category and merges from an active, used category into an inactive target. It does not use the ordinary single-transaction manual-booking endpoint. No schema migration is required.
 
-Frozen report snapshots are immutable evidence. A correction must not rewrite their stored lines, literal labels, or hashes. Roll back a data correction by applying a new audited reverse correction from the protected before-image—not by restoring a database dump over newer activity. Verify transaction count, source bank facts, and income/expense/net totals to the cent before and after both correction and reversal. Stop if the exact target set or any invariant differs from the approved plan.
+Before applying in production, compare the fresh dry-run against the whole-administration audit above: 499 transactions across the seven lowercase labels, including 372 `schenking FTK` rows; all per-label/per-year counts and net minor-unit totals must agree exactly. The target set must not be inferred from a stale count or merely from the rendered category list. A mismatch, blocker, or unexpected category is a stop condition. At the time this code is prepared, the production correction has not been applied; live post-deployment dry-run evidence and the returned operation ID must be recorded here before claiming completion.
+
+Rollback is a separate, admin-only compensating operation. Retain the returned operation ID outside transient browser state. Run a rollback dry-run and confirm its exact plan hash. Rollback is refused if transaction facts, category labels/status, rules, suggestions, or latest review-decision state have drifted since normalization; it never rewinds newer work. If it passes, it restores the prior category assignments/labels and reference statuses, appends reversal decisions/audit entries, and leaves the original normalization evidence intact. It does not delete records or rewrite report snapshots. Reconcile transaction count, bank facts, category totals, and income/expense/net minor-unit totals after both apply and any rollback.
+
+The aggregate tables above remain the approved audit checkpoint, not an individual-row backup. The operation's immutable audit before-images are the rollback source. Do not restore a database dump over newer activity.
 
 ## Production release and code rollback
 

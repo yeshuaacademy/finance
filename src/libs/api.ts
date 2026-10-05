@@ -1206,6 +1206,63 @@ export const postOwnerHistoryProposalExecute = async (confirmedPlanHash: string)
     body: JSON.stringify({ execute: true, confirmedPlanHash }),
   })));
 
+export type CategoryNormalizationSummary = {
+  categoryCount: number;
+  lowercaseCategoryCount: number;
+  mergeCategoryCount: number;
+  transactionCount: number;
+  bookingCount: number;
+  ruleCount: number;
+  suggestionCount: number;
+  retireCategoryCount: number;
+  blockedTransactionCount: number;
+  countByYear: Record<string, number>;
+  incomeMinor: string;
+  expenseMinor: string;
+  netMinor: string;
+  emptyCategories: Array<{ name: string; referenceCount: number; isActive: boolean; willDeactivate: boolean }>;
+  labels: Array<{
+    from: string;
+    to: string;
+    transactionCount: number;
+    merge: boolean;
+    countByYear: Record<string, number>;
+    netByYearMinor: Record<string, string>;
+    incomeMinor: string;
+    expenseMinor: string;
+    netMinor: string;
+  }>;
+};
+
+export type CategoryNormalizationResponse = {
+  status: string;
+  dryRun?: boolean;
+  writesPerformed: boolean;
+  operationId?: string;
+  planHash: string;
+  summary: CategoryNormalizationSummary | {
+    transactionCount: number;
+    categoryCount: number;
+    ruleCount: number;
+    suggestionCount: number;
+    writesPerformed: false;
+  };
+  blockers?: string[];
+  decisionCount?: number;
+  auditEntryCount?: number;
+};
+
+export const postCategoryNormalizationAction = async (payload: {
+  action: 'dry-run' | 'apply' | 'rollback-dry-run' | 'rollback';
+  confirmedPlanHash?: string;
+  operationId?: string;
+}): Promise<CategoryNormalizationResponse> =>
+  readJson(await fetch(getApiUrl('/api/operator/category-normalization'), withUserHeader({
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })));
+
 export const postTransactionTypeDirectionUsageAudit = async (): Promise<TransactionTypeDirectionUsageAuditResponse> =>
   readJson(await fetch(getApiUrl('/api/operator/transaction-type-direction-usage-audit'), withUserHeader({
     method: 'POST',
