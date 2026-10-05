@@ -210,7 +210,9 @@ export const buildCategoryNormalizationPlan = async (
 
   const byName = new Map(categories.map((category) => [category.name, category]));
   const categoryChanges: CategoryChange[] = categories
-    .filter((category) => isLowercaseInitial(category.name))
+    // Historical merge sources remain as inactive records for provenance. Do not
+    // keep proposing them once their live references have been moved.
+    .filter((category) => isLowercaseInitial(category.name) && (category.isActive || referenceCount(category) > 0))
     .map((category) => {
       const targetName = capitalizeCategoryLabel(category.name);
       const target = byName.get(targetName);
