@@ -58,7 +58,7 @@ The `.github/workflows/dokploy.yml` workflow deploys pushes to `main`. It builds
 This release contains no Prisma migration. If the application behavior must be rolled back:
 
 1. Record the bad release SHA and the last known-good production SHA from `/api/deployment-info`.
-2. Create a normal revert commit for the release on `main`; do not reset or force-push shared history.
+2. Create a normal revert commit for the application-code commit(s) on `main`, newest first; retain the rollback documentation. Do not reset or force-push shared history.
 3. Push the revert commit to `main` to run the same build/deploy workflow.
 4. Confirm `/api/health` is healthy and `/api/deployment-info.buildSha` matches the revert commit. Inspect workflow and Dokploy logs if either check fails; HTTP 200 from the trigger is insufficient.
 
