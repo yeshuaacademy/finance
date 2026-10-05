@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ensureCategoryIndex } from '../../src/helpers/category-tree';
+import { ensureCategoryIndex, filterCategoryTreeByActiveIds } from '../../src/helpers/category-tree';
 
 describe('category tree helper', () => {
   it('builds a lookup map and sorted main categories', () => {
@@ -34,5 +34,26 @@ describe('category tree helper', () => {
 
     expect(map.get('main-1')?.color).toBe('#123456');
     expect(tree.main[0]?.color).toBe('#123456');
+  });
+
+  it('omits archived transaction labels and keeps canonical active labels in the overview', () => {
+    const { tree } = ensureCategoryIndex([
+      { id: 'main:legacy', name: 'schenking FTK', parentId: null },
+      { id: 'cat-legacy', name: 'schenking FTK', parentId: 'main:legacy' },
+      { id: 'main:gifts', name: 'Schenking FTK', parentId: null },
+      { id: 'cat-canonical', name: 'Schenking FTK', parentId: 'main:gifts' },
+    ]);
+
+    expect(filterCategoryTreeByActiveIds(
+      tree,
+      new Set(['cat-canonical']),
+      new Map([['cat-canonical', 'Schenking FTK']]),
+    )).toEqual({
+      main: [{ id: 'main:gifts', name: 'Schenking FTK', parentId: null }],
+      byParent: {
+        'main:legacy': [],
+        'main:gifts': [{ id: 'cat-canonical', name: 'Schenking FTK', parentId: 'main:gifts' }],
+      },
+    });
   });
 });

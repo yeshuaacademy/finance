@@ -49,6 +49,7 @@ The category-normalization release adds an admin-only, hash-gated production ope
 - merge a lowercase label into an already-existing exact capitalized label (for example `schenking FTK` into `Schenking FTK`), preserving the canonical category ID;
 - preserve category identity when no exact canonical label exists, while updating the current transaction/booking label;
 - mark active categories with no current transaction, booking, rule, or suggestion references as inactive/historical unless the category is the receiving canonical target of a merge; retain retired categories in the collapsed archive rather than deleting them;
+- build the Settings current-category overview from active reference-category IDs, so retained raw/import labels for retired categories do not reappear as current duplicates;
 - preserve bank facts, booking source/rule/history/evidence fields, and frozen report snapshot rows and hashes;
 - write before/after audit records and a compensating `CHANGE_BOOKING` decision for current bookings with valid decision provenance.
 

@@ -36,6 +36,7 @@ import {
   type CategoryNormalizationSummary,
 } from '@/libs/api';
 import { useLedger } from '@/context/ledger-context';
+import { filterCategoryTreeByActiveIds } from '@/helpers/category-tree';
 import {
   formatFileSize,
   formatImportDate,
@@ -59,9 +60,15 @@ function SettingCard({ title, body, status }: { title: string; body: string; sta
   );
 }
 
-function CategoryOverview() {
+function CategoryOverview({ categories }: { categories: ReferenceCategoryItem[] | null }) {
   const { categoryTree } = useLedger();
-  const mainCategories = useMemo(() => categoryTree.main.filter((category) => !isReviewPlaceholderCategory(category)), [categoryTree.main]);
+  const activeCategories = useMemo(() => categories?.filter((category) => category.isActive) ?? [], [categories]);
+  const visibleTree = useMemo(() => filterCategoryTreeByActiveIds(
+    categoryTree,
+    new Set(activeCategories.map((category) => category.id)),
+    new Map(activeCategories.map((category) => [category.id, category.name])),
+  ), [activeCategories, categoryTree]);
+  const mainCategories = useMemo(() => visibleTree.main.filter((category) => !isReviewPlaceholderCategory(category)), [visibleTree.main]);
 
   return (
     <section className="rounded-[2rem] border border-[#ded5c8] bg-[#fbf8f2] p-6 shadow-[0_24px_70px_rgba(87,67,45,0.08)]">
@@ -75,7 +82,7 @@ function CategoryOverview() {
       {mainCategories.length ? (
         <div className="grid gap-4 lg:grid-cols-2">
           {mainCategories.map((main) => {
-            const children = (categoryTree.byParent[main.id] ?? []).filter((category) => !isReviewPlaceholderCategory(category));
+            const children = (visibleTree.byParent[main.id] ?? []).filter((category) => !isReviewPlaceholderCategory(category));
             return (
               <div key={main.id} className="rounded-[1.5rem] border border-[#ded5c8] bg-[#f8f3ec] p-4">
                 <p className="font-semibold text-[#251f1a]">{main.name}</p>
@@ -93,7 +100,9 @@ function CategoryOverview() {
           })}
         </div>
       ) : (
-        <p className="rounded-2xl bg-[#f5f1ea] p-5 text-sm text-[#6f6253]">Nog geen categorieën geladen.</p>
+        <p className="rounded-2xl bg-[#f5f1ea] p-5 text-sm text-[#6f6253]">
+          {categories === null ? 'Actieve categorieën laden…' : 'Nog geen actieve categorieën.'}
+        </p>
       )}
     </section>
   );
@@ -406,7 +415,7 @@ function ProjectsPanel({ admin }: { admin: boolean }) {
   );
 }
 
-function CategoriesPanel({ admin }: { admin: boolean }) {
+function CategoriesPanel({ admin, onItemsLoaded }: { admin: boolean; onItemsLoaded: (items: ReferenceCategoryItem[]) => void }) {
   const [items, setItems] = useState<ReferenceCategoryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -416,7 +425,7 @@ function CategoriesPanel({ admin }: { admin: boolean }) {
 
   const load = () => {
     fetchReferenceCategories()
-      .then((data) => { setItems(data); setError(null); })
+      .then((data) => { setItems(data); onItemsLoaded(data); setError(null); })
       .catch((err) => setError(err instanceof Error ? err.message : 'Laden mislukt.'));
   };
 
@@ -915,6 +924,7 @@ function CategoryNormalizationControls(props: {
 export default function FinanceSettingsPage() {
   const { summary } = useLedger();
   const admin = isClientAdmin();
+  const [referenceCategories, setReferenceCategories] = useState<ReferenceCategoryItem[] | null>(null);
 
   return (
     <FinanceAppFrame reviewCount={summary.reviewCount} activeHref="/settings">
@@ -932,9 +942,9 @@ export default function FinanceSettingsPage() {
         </section>
 
         <ProjectsPanel admin={admin} />
-        <CategoriesPanel admin={admin} />
+        <CategoriesPanel admin={admin} onItemsLoaded={setReferenceCategories} />
         <TransactionTypesPanel admin={admin} />
-        <CategoryOverview />
+        <CategoryOverview categories={referenceCategories} />
         <ImportHistoryPanel />
         <EmailRecipientsPanel />
         <OperatorToolsPanel admin={admin} />
