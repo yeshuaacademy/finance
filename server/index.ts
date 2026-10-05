@@ -52,6 +52,7 @@ import {
   listTransactionTypes, createTransactionType, updateTransactionType,
 } from './routes/referenceData';
 import { postDirectionInference, postOwnerHistoryProposals, postTransactionTypeDirectionUsageAudit } from './routes/operatorTools';
+import { postCategoryNormalization } from './routes/categoryNormalization';
 import { postMonthlySendReport } from './routes/monthlySendReport';
 
 const app = express();
@@ -117,6 +118,7 @@ app.post('/api/reconciliation/period-closes/:id/reopen', postAuditedPeriodReopen
 app.post('/api/operator/direction-inference', postDirectionInference);
 app.post('/api/operator/owner-history-proposals', postOwnerHistoryProposals);
 app.post('/api/operator/transaction-type-direction-usage-audit', postTransactionTypeDirectionUsageAudit);
+app.post('/api/operator/category-normalization', postCategoryNormalization);
 
 // Reference data — projects, categories, transaction types
 app.get('/api/reference-data/projects', listProjects);
