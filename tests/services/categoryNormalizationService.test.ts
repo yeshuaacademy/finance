@@ -193,6 +193,27 @@ describe('category normalization service', () => {
     expect(result.blockers).toContain("Active category 'schenking FTK' cannot be merged into inactive target 'Schenking FTK'. Activate the target or review this mapping first.");
   });
 
+  it('does not propose an already archived, unused lowercase merge source again', async () => {
+    const db = makeDb({
+      categories: [
+        category('cat-lower', 'schenking FTK', {}, { isActive: false, isHistorical: true }),
+        category('cat-canonical', 'Schenking FTK', { transactions: 372 }),
+      ],
+      rows: [],
+      decisions: [],
+    });
+
+    const plan = await buildCategoryNormalizationPlan(db as never, { workspaceId, userId });
+
+    expect(plan.categoryChanges).toEqual([]);
+    expect(plan.transactions).toEqual([]);
+    expect(plan.retireCategoryIds).toEqual([]);
+    expect(plan.summary.lowercaseCategoryCount).toBe(0);
+    expect(plan.summary.mergeCategoryCount).toBe(0);
+    expect(plan.summary.retireCategoryCount).toBe(0);
+    expect(plan.summary.transactionCount).toBe(0);
+  });
+
   it('requires a matching dry-run hash and preserves the original booking provenance on apply', async () => {
     const db = makeDb();
     const plan = await buildCategoryNormalizationPlan(db as never, { workspaceId, userId });
