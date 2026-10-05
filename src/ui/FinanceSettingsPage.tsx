@@ -608,6 +608,8 @@ function OperatorToolsPanel({ admin }: { admin: boolean }) {
   const [categoryConfirmHash, setCategoryConfirmHash] = useState('');
   const [categoryBusy, setCategoryBusy] = useState(false);
   const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [categoryMappingSource, setCategoryMappingSource] = useState('');
+  const [categoryMappingTarget, setCategoryMappingTarget] = useState('');
   const [rollbackOperationId, setRollbackOperationId] = useState('');
   const [rollbackResult, setRollbackResult] = useState<CategoryNormalizationResponse | null>(null);
   const [rollbackConfirmHash, setRollbackConfirmHash] = useState('');
@@ -657,7 +659,7 @@ function OperatorToolsPanel({ admin }: { admin: boolean }) {
 
   const runCategoryDryRun = async () => {
     setCategoryBusy(true); setCategoryError(null); setCategoryConfirmHash('');
-    try { setCategoryResult(await postCategoryNormalizationAction({ action: 'dry-run' })); }
+    try { setCategoryResult(await postCategoryNormalizationAction({ action: 'dry-run', mappings: categoryMappings })); }
     catch (e) { setCategoryError(e instanceof Error ? e.message : 'Mislukt.'); }
     finally { setCategoryBusy(false); }
   };
@@ -666,12 +668,23 @@ function OperatorToolsPanel({ admin }: { admin: boolean }) {
     if (!categoryResult || categoryConfirmHash.trim() !== categoryResult.planHash) return;
     setCategoryBusy(true); setCategoryError(null);
     try {
-      const result = await postCategoryNormalizationAction({ action: 'apply', confirmedPlanHash: categoryConfirmHash.trim() });
+      const result = await postCategoryNormalizationAction({ action: 'apply', confirmedPlanHash: categoryConfirmHash.trim(), mappings: categoryMappings });
       setCategoryResult(result);
       setCategoryConfirmHash('');
       if (result.operationId) setRollbackOperationId(result.operationId);
     } catch (e) { setCategoryError(e instanceof Error ? e.message : 'Mislukt.'); }
     finally { setCategoryBusy(false); }
+  };
+
+  const categoryMappings = categoryMappingSource.trim() && categoryMappingTarget.trim()
+    ? [{ sourceName: categoryMappingSource.trim(), targetName: categoryMappingTarget.trim() }]
+    : [];
+
+  const changeCategoryMapping = (source: string, target: string) => {
+    setCategoryMappingSource(source);
+    setCategoryMappingTarget(target);
+    setCategoryResult(null);
+    setCategoryConfirmHash('');
   };
 
   const runRollbackDryRun = async () => {
@@ -716,6 +729,9 @@ function OperatorToolsPanel({ admin }: { admin: boolean }) {
         onRollbackConfirmHash={setRollbackConfirmHash}
         onRollbackDryRun={runRollbackDryRun}
         onRollback={runRollback}
+        mappingSource={categoryMappingSource}
+        mappingTarget={categoryMappingTarget}
+        onMappingChange={changeCategoryMapping}
       />
 
       {/* Direction inference */}
@@ -840,6 +856,9 @@ function CategoryNormalizationControls(props: {
   onRollbackConfirmHash: (value: string) => void;
   onRollbackDryRun: () => void;
   onRollback: () => void;
+  mappingSource: string;
+  mappingTarget: string;
+  onMappingChange: (source: string, target: string) => void;
 }) {
   const summary = props.result?.summary && 'labels' in props.result.summary
     ? props.result.summary as CategoryNormalizationSummary
@@ -849,11 +868,17 @@ function CategoryNormalizationControls(props: {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="font-semibold">Historische categorieën normaliseren</p>
-          <p className="text-xs text-[#7d6d5a]">Kapitaliseert bestaande labels, voegt alleen case-duplicaten samen en archiveert ongebruikte categorieën zonder historische rapporten te wijzigen.</p>
+          <p className="text-xs text-[#7d6d5a]">Kapitaliseert bestaande labels, voegt case-duplicaten en hieronder exact opgegeven categorieën samen en archiveert ongebruikte categorieën zonder historische rapporten te wijzigen.</p>
         </div>
         <button type="button" disabled={props.busy} onClick={props.onDryRun} className="rounded-xl border border-[#d7cdbf] px-3 py-1.5 text-xs font-semibold text-[#574b3f] disabled:opacity-40">
           {props.busy ? 'Laden…' : 'Dry-run vernieuwen'}
         </button>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-[#6f6253]">Optionele exacte samenvoeging:</span>
+        <input aria-label="Broncategorie voor samenvoeging" disabled={props.busy} value={props.mappingSource} onChange={(event) => props.onMappingChange(event.target.value, props.mappingTarget)} placeholder="Bronlabel" className="min-w-[150px] rounded-xl border border-[#d7cdbf] bg-white px-3 py-2 disabled:opacity-50" />
+        <span>→</span>
+        <input aria-label="Doelcategorie voor samenvoeging" disabled={props.busy} value={props.mappingTarget} onChange={(event) => props.onMappingChange(props.mappingSource, event.target.value)} placeholder="Doellabel" className="min-w-[150px] rounded-xl border border-[#d7cdbf] bg-white px-3 py-2 disabled:opacity-50" />
       </div>
       {props.error && <p className="mt-3 rounded-xl bg-[#f7e9e4] p-3 text-sm text-[#7b4b3a]">{props.error}</p>}
       {props.result && summary && (
@@ -863,7 +888,7 @@ function CategoryNormalizationControls(props: {
             <span>Inkomsten: <strong>{formatMinorUnits(summary.incomeMinor)}</strong></span>
             <span>Uitgaven: <strong>{formatMinorUnits(summary.expenseMinor)}</strong></span>
             <span>Netto: <strong>{formatMinorUnits(summary.netMinor)}</strong></span>
-            <span>Labels: <strong>{summary.lowercaseCategoryCount}</strong></span>
+            <span>Categorieën bijgewerkt: <strong>{summary.categoryChangeCount}</strong></span>
             <span>Samenvoegingen: <strong>{summary.mergeCategoryCount}</strong></span>
             <span>Regels: <strong>{summary.ruleCount}</strong></span>
             <span>Suggesties: <strong>{summary.suggestionCount}</strong></span>

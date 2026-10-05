@@ -1208,7 +1208,7 @@ export const postOwnerHistoryProposalExecute = async (confirmedPlanHash: string)
 
 export type CategoryNormalizationSummary = {
   categoryCount: number;
-  lowercaseCategoryCount: number;
+  categoryChangeCount: number;
   mergeCategoryCount: number;
   transactionCount: number;
   bookingCount: number;
@@ -1256,6 +1256,7 @@ export const postCategoryNormalizationAction = async (payload: {
   action: 'dry-run' | 'apply' | 'rollback-dry-run' | 'rollback';
   confirmedPlanHash?: string;
   operationId?: string;
+  mappings?: Array<{ sourceName: string; targetName: string }>;
 }): Promise<CategoryNormalizationResponse> =>
   readJson(await fetch(getApiUrl('/api/operator/category-normalization'), withUserHeader({
     method: 'POST',

@@ -2,7 +2,9 @@ import crypto from 'node:crypto';
 import { Prisma, ReviewDecisionAction, type PrismaClient } from '@prisma/client';
 import { canonicalizeEvidence, hashEvidence } from './reviewDecisionService';
 
-export const CATEGORY_NORMALIZATION_VERSION = 'category-normalization-v1';
+export const CATEGORY_NORMALIZATION_VERSION = 'category-normalization-v2';
+
+export type CategoryMergeMapping = { sourceName: string; targetName: string };
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -106,6 +108,7 @@ type CategoryNormalizationPlanInternal = {
   version: typeof CATEGORY_NORMALIZATION_VERSION;
   workspaceId: string;
   planHash: string;
+  mappings: CategoryMergeMapping[];
   categories: CategoryRow[];
   categoryChanges: CategoryChange[];
   transactions: TransactionChange[];
@@ -118,7 +121,7 @@ type CategoryNormalizationPlanInternal = {
 
 export type CategoryNormalizationSummary = {
   categoryCount: number;
-  lowercaseCategoryCount: number;
+  categoryChangeCount: number;
   mergeCategoryCount: number;
   transactionCount: number;
   bookingCount: number;
@@ -188,7 +191,7 @@ const buildPlanHash = (input: Omit<CategoryNormalizationPlanInternal, 'planHash'
 
 export const buildCategoryNormalizationPlan = async (
   db: Db,
-  input: { workspaceId: string; userId: string },
+  input: { workspaceId: string; userId: string; mappings?: CategoryMergeMapping[] },
 ): Promise<CategoryNormalizationPlanInternal> => {
   const categories = await db.category.findMany({
     where: { workspaceId: input.workspaceId },
@@ -209,7 +212,7 @@ export const buildCategoryNormalizationPlan = async (
   }) as CategoryRow[];
 
   const byName = new Map(categories.map((category) => [category.name, category]));
-  const categoryChanges: CategoryChange[] = categories
+  const automaticCategoryChanges: CategoryChange[] = categories
     // Historical merge sources remain as inactive records for provenance. Do not
     // keep proposing them once their live references have been moved.
     .filter((category) => isLowercaseInitial(category.name) && (category.isActive || referenceCount(category) > 0))
@@ -225,6 +228,53 @@ export const buildCategoryNormalizationPlan = async (
       };
     });
 
+  const explicitMappings = input.mappings ?? [];
+  const explicitBlockers: string[] = [];
+  const explicitCategoryChanges: CategoryChange[] = [];
+  const usedSources = new Set<string>();
+  for (const mapping of explicitMappings) {
+    const source = byName.get(mapping.sourceName);
+    const target = byName.get(mapping.targetName);
+    if (!mapping.sourceName || !mapping.targetName || mapping.sourceName === mapping.targetName) {
+      explicitBlockers.push('Explicit category mappings must name two different, non-empty labels.');
+      continue;
+    }
+    if (!source) {
+      explicitBlockers.push(`Source category '${mapping.sourceName}' was not found.`);
+      continue;
+    }
+    if (!target) {
+      explicitBlockers.push(`Target category '${mapping.targetName}' was not found.`);
+      continue;
+    }
+    if (usedSources.has(source.id)) {
+      explicitBlockers.push(`Source category '${mapping.sourceName}' is mapped more than once.`);
+      continue;
+    }
+    usedSources.add(source.id);
+    if (!target.isActive) {
+      explicitBlockers.push(`Explicit merge target '${mapping.targetName}' is inactive; activate it or choose an active target.`);
+      continue;
+    }
+    if (!source.isActive && referenceCount(source) === 0) continue;
+    if (source.id === target.id) {
+      explicitBlockers.push(`Source and target resolve to the same category '${mapping.sourceName}'.`);
+      continue;
+    }
+    if (automaticCategoryChanges.some((change) => change.sourceId === source.id)) {
+      explicitBlockers.push(`Category '${mapping.sourceName}' already has an automatic capitalization mapping.`);
+      continue;
+    }
+    explicitCategoryChanges.push({
+      sourceId: source.id,
+      sourceName: source.name,
+      targetId: target.id,
+      targetName: target.name,
+      merge: true,
+    });
+  }
+  const categoryChanges = [...automaticCategoryChanges, ...explicitCategoryChanges];
+
   const categoryChangesByTargetName = new Map<string, CategoryChange[]>();
   for (const change of categoryChanges) {
     const group = categoryChangesByTargetName.get(change.targetName) ?? [];
@@ -239,10 +289,10 @@ export const buildCategoryNormalizationPlan = async (
     .filter((change) => {
       const source = sourceCategoryById.get(change.sourceId);
       const target = sourceCategoryById.get(change.targetId);
-      return change.merge && source?.isActive && target && !target.isActive && referenceCount(source) > 0;
+      return change.merge && source && target && !target.isActive && referenceCount(source) > 0;
     })
-    .map((change) => `Active category '${change.sourceName}' cannot be merged into inactive target '${change.targetName}'. Activate the target or review this mapping first.`);
-  const categoryPlanBlockers = [...normalizationCollisionBlockers, ...inactiveMergeTargetBlockers];
+    .map((change) => `Used category '${change.sourceName}' cannot be merged into inactive target '${change.targetName}'. Activate the target or review this mapping first.`);
+  const categoryPlanBlockers = [...explicitBlockers, ...normalizationCollisionBlockers, ...inactiveMergeTargetBlockers];
 
   const sourceIds = categoryChanges.map((change) => change.sourceId);
   const [transactionRows, rules, suggestions] = sourceIds.length
@@ -444,7 +494,7 @@ export const buildCategoryNormalizationPlan = async (
   });
   const summary: CategoryNormalizationSummary = {
     categoryCount: categories.length,
-    lowercaseCategoryCount: categoryChanges.length,
+    categoryChangeCount: categoryChanges.length,
     mergeCategoryCount: categoryChanges.filter((change) => change.merge).length,
     transactionCount: transactions.length,
     bookingCount: transactions.length,
@@ -469,6 +519,7 @@ export const buildCategoryNormalizationPlan = async (
   const hashPayload = {
     version: CATEGORY_NORMALIZATION_VERSION as typeof CATEGORY_NORMALIZATION_VERSION,
     workspaceId: input.workspaceId,
+    mappings: explicitMappings,
     categories,
     categoryChanges,
     transactions,
@@ -486,7 +537,7 @@ export const buildCategoryNormalizationPlan = async (
 
 export const getCategoryNormalizationDryRun = async (
   db: Db,
-  input: { workspaceId: string; userId: string },
+  input: { workspaceId: string; userId: string; mappings?: CategoryMergeMapping[] },
 ): Promise<CategoryNormalizationDryRun> => {
   const plan = await buildCategoryNormalizationPlan(db, input);
   return {
@@ -737,6 +788,7 @@ export const executeCategoryNormalization = async (
     userId: string;
     actor: CategoryNormalizationActor;
     confirmedPlanHash: string;
+    mappings?: CategoryMergeMapping[];
   },
 ) => {
   const initialPlan = await buildCategoryNormalizationPlan(db, input);

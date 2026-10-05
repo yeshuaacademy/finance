@@ -43,7 +43,7 @@ The earlier differing figures were caused by using different scopes, not evidenc
 
 ## Category normalization and rollback
 
-The category-normalization release adds an admin-only, hash-gated production operation at `/api/operator/category-normalization`, exposed in Settings → Operator Tools. The operation is separate from the earlier transaction-list UI release. It is designed to:
+The category-normalization release adds an admin-only, hash-gated production operation at `/api/operator/category-normalization`, exposed in Settings → Operator Tools. The operation is separate from the earlier transaction-list UI release. In addition to automatic initial-capital normalization, an administrator may include explicit exact source/target category mappings in the same dry-run and apply. Both labels must already exist; mapping inputs are included in the plan hash and the same transaction, booking, rule, suggestion, audit, and guarded rollback path is used. It is designed to:
 
 - capitalize the first Unicode lowercase character in every category label in the workspace;
 - merge a lowercase label into an already-existing exact capitalized label (for example `schenking FTK` into `Schenking FTK`), preserving the canonical category ID;

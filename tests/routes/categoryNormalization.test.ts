@@ -57,7 +57,7 @@ describe('category normalization route', () => {
     const response = makeResponse();
     await postCategoryNormalization(makeRequest('admin') as never, response as never);
     expect(response.body).toEqual(result);
-    expect(service.dryRun).toHaveBeenCalledWith(expect.anything(), { workspaceId: 'workspace-1', userId: 'admin-1' });
+    expect(service.dryRun).toHaveBeenCalledWith(expect.anything(), { workspaceId: 'workspace-1', userId: 'admin-1', mappings: [] });
     expect(service.apply).not.toHaveBeenCalled();
   });
 
@@ -77,6 +77,28 @@ describe('category normalization route', () => {
       confirmedPlanHash: 'b'.repeat(64),
       actor: expect.objectContaining({ userId: 'admin-1', actorId: 'admin-1' }),
     }));
+  });
+
+  it('passes exact mappings to a read-only dry-run and rejects malformed mappings', async () => {
+    service.dryRun.mockResolvedValue({ status: 'DRY_RUN_COMPLETE', writesPerformed: false, planHash: 'c'.repeat(64) });
+    const response = makeResponse();
+    await postCategoryNormalization(makeRequest('admin', {
+      action: 'dry-run', mappings: [{ sourceName: 'Website kosten', targetName: 'Websitekosten' }],
+    }) as never, response as never);
+    expect(service.dryRun).toHaveBeenCalledWith(expect.anything(), {
+      workspaceId: 'workspace-1', userId: 'admin-1',
+      mappings: [{ sourceName: 'Website kosten', targetName: 'Websitekosten' }],
+    });
+
+    const invalid = makeResponse();
+    await postCategoryNormalization(makeRequest('admin', { action: 'dry-run', mappings: [{ sourceName: 'Website kosten' }] }) as never, invalid as never);
+    expect(invalid.statusCode).toBe(422);
+
+    const oversized = makeResponse();
+    await postCategoryNormalization(makeRequest('admin', {
+      action: 'dry-run', mappings: [{ sourceName: 's'.repeat(201), targetName: 'Websitekosten' }],
+    }) as never, oversized as never);
+    expect(oversized.statusCode).toBe(422);
   });
 
   it('requires an operation ID and hash for a rollback mutation', async () => {

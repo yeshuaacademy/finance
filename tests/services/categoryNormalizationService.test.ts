@@ -190,7 +190,7 @@ describe('category normalization service', () => {
     const result = await getCategoryNormalizationDryRun(db as never, { workspaceId, userId });
     expect(result.status).toBe('BLOCKED');
     expect(result.writesPerformed).toBe(false);
-    expect(result.blockers).toContain("Active category 'schenking FTK' cannot be merged into inactive target 'Schenking FTK'. Activate the target or review this mapping first.");
+    expect(result.blockers).toContain("Used category 'schenking FTK' cannot be merged into inactive target 'Schenking FTK'. Activate the target or review this mapping first.");
   });
 
   it('does not propose an already archived, unused lowercase merge source again', async () => {
@@ -208,10 +208,95 @@ describe('category normalization service', () => {
     expect(plan.categoryChanges).toEqual([]);
     expect(plan.transactions).toEqual([]);
     expect(plan.retireCategoryIds).toEqual([]);
-    expect(plan.summary.lowercaseCategoryCount).toBe(0);
+    expect(plan.summary.categoryChangeCount).toBe(0);
     expect(plan.summary.mergeCategoryCount).toBe(0);
     expect(plan.summary.retireCategoryCount).toBe(0);
     expect(plan.summary.transactionCount).toBe(0);
+  });
+
+  it('plans an explicitly mapped non-case duplicate and uses its exact target label', async () => {
+    const sourceBooking = booking({
+      categoryId: 'website-source',
+      literalCategoryLabel: 'Website kosten',
+      category: { workspaceId },
+    });
+    const db = makeDb({
+      categories: [
+        category('website-source', 'Website kosten', { transactions: 1, transactionBookings: 1 }),
+        category('website-target', 'Websitekosten', {}, { isHistorical: true }),
+      ],
+      rows: [transaction({ categoryId: 'website-source', transactionBooking: sourceBooking })],
+      decisions: [eligibleDecision({ afterCategoryId: 'website-source' })],
+    });
+
+    const result = await getCategoryNormalizationDryRun(db as never, {
+      workspaceId,
+      userId,
+      mappings: [{ sourceName: 'Website kosten', targetName: 'Websitekosten' }],
+    });
+
+    expect(result.status).toBe('DRY_RUN_COMPLETE');
+    expect(result.writesPerformed).toBe(false);
+    expect(result.summary.labels).toContainEqual(expect.objectContaining({
+      from: 'Website kosten', to: 'Websitekosten', transactionCount: 1, merge: true,
+      countByYear: { 2026: 1 }, netMinor: '31500',
+    }));
+  });
+
+  it('blocks an explicit mapping when its target category is missing', async () => {
+    const db = makeDb({ categories: [category('website-source', 'Website kosten')], rows: [], decisions: [] });
+    const result = await getCategoryNormalizationDryRun(db as never, {
+      workspaceId, userId, mappings: [{ sourceName: 'Website kosten', targetName: 'Websitekosten' }],
+    });
+    expect(result.status).toBe('BLOCKED');
+    expect(result.blockers).toContain("Target category 'Websitekosten' was not found.");
+  });
+
+  it('blocks an explicit merge into an inactive canonical category', async () => {
+    const db = makeDb({
+      categories: [
+        category('website-source', 'Website kosten', { transactions: 1, transactionBookings: 1 }),
+        category('website-target', 'Websitekosten', {}, { isActive: false, isHistorical: true }),
+      ],
+      rows: [],
+      decisions: [],
+    });
+    const result = await getCategoryNormalizationDryRun(db as never, {
+      workspaceId, userId, mappings: [{ sourceName: 'Website kosten', targetName: 'Websitekosten' }],
+    });
+    expect(result.status).toBe('BLOCKED');
+    expect(result.blockers).toContain("Explicit merge target 'Websitekosten' is inactive; activate it or choose an active target.");
+  });
+
+  it('applies an explicit mapping through the existing audited booking-update path', async () => {
+    const sourceBooking = booking({ categoryId: 'website-source', literalCategoryLabel: 'Website kosten' });
+    const db = makeDb({
+      categories: [
+        category('website-source', 'Website kosten', { transactions: 1, transactionBookings: 1 }),
+        category('website-target', 'Websitekosten', {}, { isHistorical: true }),
+      ],
+      rows: [transaction({ categoryId: 'website-source', transactionBooking: sourceBooking })],
+      decisions: [eligibleDecision({ afterCategoryId: 'website-source' })],
+    });
+    const input = { workspaceId, userId, mappings: [{ sourceName: 'Website kosten', targetName: 'Websitekosten' }] };
+    const plan = await buildCategoryNormalizationPlan(db as never, input);
+    const result = await executeCategoryNormalization(db as never, {
+      ...input, actor, confirmedPlanHash: plan.planHash,
+    });
+
+    expect(result.status).toBe('APPLIED');
+    expect(db.transaction.updateMany).toHaveBeenCalledWith({
+      where: { categoryId: 'website-source' }, data: { categoryId: 'website-target' },
+    });
+    expect(db.transactionBooking.updateMany).toHaveBeenCalledWith({
+      where: { workspaceId, categoryId: 'website-source' },
+      data: { categoryId: 'website-target', literalCategoryLabel: 'Websitekosten' },
+    });
+    const auditEntries = db.auditLog.createMany.mock.calls[0]?.[0].data as Array<Record<string, unknown>>;
+    expect(auditEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'category.normalization.transaction', entityId: 'tx-1' }),
+      expect.objectContaining({ action: 'category.normalization.applied', entityType: 'categoryNormalization' }),
+    ]));
   });
 
   it('requires a matching dry-run hash and preserves the original booking provenance on apply', async () => {
