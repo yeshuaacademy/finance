@@ -8,6 +8,7 @@ import {
   getCategoryNormalizationDryRun,
   getCategoryNormalizationRollbackDryRun,
 } from '../services/categoryNormalizationService';
+import type { CategoryMergeMapping } from '../services/categoryNormalizationService';
 
 const resolveWorkspace = (res: Response): string | null => {
   const workspaceId = process.env.DEFAULT_WORKSPACE_ID?.trim();
@@ -21,6 +22,21 @@ const resolveWorkspace = (res: Response): string | null => {
 const readString = (value: unknown): string | null =>
   typeof value === 'string' && value.trim() ? value.trim() : null;
 
+const readMappings = (value: unknown): CategoryMergeMapping[] | null => {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 25) return null;
+  const mappings: CategoryMergeMapping[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    const record = item as Record<string, unknown>;
+    const sourceName = readString(record.sourceName);
+    const targetName = readString(record.targetName);
+    if (!sourceName || !targetName || sourceName.length > 200 || targetName.length > 200) return null;
+    mappings.push({ sourceName, targetName });
+  }
+  return mappings;
+};
+
 export const postCategoryNormalization = async (req: Request, res: Response) => {
   const actor = await requireAdmin(req, res);
   if (!actor) return;
@@ -31,13 +47,16 @@ export const postCategoryNormalization = async (req: Request, res: Response) => 
     action?: unknown;
     operationId?: unknown;
     confirmedPlanHash?: unknown;
+    mappings?: unknown;
   };
   const action = readString(body.action) ?? 'dry-run';
   const operationId = readString(body.operationId);
+  const mappings = readMappings(body.mappings);
+  if (!mappings) return res.status(422).json({ error: 'Categorie-mappings zijn ongeldig (maximaal 25 exacte bron/doel-labels).'});
 
   try {
     if (action === 'dry-run') {
-      return res.json(await getCategoryNormalizationDryRun(prisma, { workspaceId, userId: actor.userId }));
+      return res.json(await getCategoryNormalizationDryRun(prisma, { workspaceId, userId: actor.userId, mappings }));
     }
     if (action === 'apply') {
       const confirmedPlanHash = readString(body.confirmedPlanHash);
@@ -51,6 +70,7 @@ export const postCategoryNormalization = async (req: Request, res: Response) => 
           actorEmail: actor.actorEmail,
         },
         confirmedPlanHash,
+        mappings,
       });
       return res.status(result.status === 'BLOCKED' ? 409 : result.status === 'HASH_DRIFT' ? 409 : 200).json(result);
     }
