@@ -14,11 +14,13 @@ export function FinanceAppFrame({
   reviewCount,
   activeHref,
   showWorkflowHint = false,
+  settingsNavigation,
 }: {
   children: ReactNode;
   reviewCount: number;
   activeHref?: string;
   showWorkflowHint?: boolean;
+  settingsNavigation?: ReactNode;
 }) {
   return (
     <main className="min-h-screen bg-[#f5f1ea] text-[#251f1a]">
@@ -49,7 +51,7 @@ export function FinanceAppFrame({
       </header>
 
       <div className="mx-auto flex min-h-screen max-w-[1480px] gap-6 px-4 py-4 sm:px-6 sm:py-6">
-        <aside className="hidden w-64 shrink-0 rounded-[2rem] border border-[#ded5c8] bg-[#fbf8f2] p-5 shadow-[0_24px_70px_rgba(87,67,45,0.08)] lg:block">
+        <aside className="hidden w-64 shrink-0 self-start rounded-[2rem] border border-[#ded5c8] bg-[#fbf8f2] p-5 shadow-[0_24px_70px_rgba(87,67,45,0.08)] lg:sticky lg:top-6 lg:block lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
           <div className="mb-8">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#8a7965]">Yeshua Academy</p>
             <h1 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[#251f1a]">Finance</h1>
@@ -75,6 +77,7 @@ export function FinanceAppFrame({
               );
             })}
           </nav>
+          {settingsNavigation ? <div className="mt-7 border-t border-[#ded5c8] pt-5">{settingsNavigation}</div> : null}
           {showWorkflowHint ? (
             <div className="mt-8 rounded-3xl bg-[#efe7db] p-4 text-sm text-[#5f5347]">
               <p className="font-semibold text-[#251f1a]">Rustige workflow</p>
@@ -83,7 +86,10 @@ export function FinanceAppFrame({
           ) : null}
         </aside>
 
-        <section className="min-w-0 flex-1">{children}</section>
+        <section className="min-w-0 flex-1">
+          {settingsNavigation ? <div className="mb-4 lg:hidden">{settingsNavigation}</div> : null}
+          {children}
+        </section>
       </div>
     </main>
   );

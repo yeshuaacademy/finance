@@ -47,6 +47,8 @@ describe('settings page helpers', () => {
     expect(translateAuditAction('ledger.locked')).toBe('Maand vergrendeld');
     expect(translateAuditAction('openingBalance.updated')).toBe('Beginbalans aangepast');
     expect(translateAuditAction('emailRecipient.deactivated')).toBe('E-mailontvanger uitgeschakeld');
+    expect(translateAuditAction('emailRecipient.activated')).toBe('E-mailontvanger ingeschakeld');
+    expect(translateAuditAction('emailRecipient.deleted')).toBe('E-mailontvanger verwijderd');
     expect(translateAuditAction('unknown.action')).toBe('unknown.action');
   });
 });
