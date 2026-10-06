@@ -21,7 +21,7 @@ import { postSuggestionBackfill } from './routes/suggestionBackfill';
 import { getSuggestionEvaluation } from './routes/suggestionEvaluation';
 import { listAuditLogs } from './routes/audit';
 import { downloadImportBatchFile, listImportBatches } from './routes/importBatches';
-import { deactivateEmailRecipient, listEmailRecipients, upsertEmailRecipient } from './routes/emailRecipients';
+import { activateEmailRecipient, deactivateEmailRecipient, listEmailRecipients, removeEmailRecipient, upsertEmailRecipient } from './routes/emailRecipients';
 import {
   confirmMerchantAliasDeprecationRoute,
   confirmMerchantConflictResolutionRoute,
@@ -101,6 +101,8 @@ app.post('/api/merchant-knowledge/merchants/:merchantId/deprecate/confirm', conf
 app.post('/api/merchant-knowledge/conflicts/:conflictId/resolve/confirm', confirmMerchantConflictResolutionRoute);
 app.post('/api/email-recipients', upsertEmailRecipient);
 app.delete('/api/email-recipients/:id', deactivateEmailRecipient);
+app.post('/api/email-recipients/:id/activate', activateEmailRecipient);
+app.post('/api/email-recipients/:id/remove', removeEmailRecipient);
 app.post('/api/ledger/:ledgerId/lock', lockLedger);
 app.post('/api/ledger/:ledgerId/unlock', unlockLedger);
 app.get('/api/rules', getRules);

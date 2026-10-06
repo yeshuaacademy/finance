@@ -68,6 +68,10 @@ export const translateAuditAction = (action: string) => {
       return 'E-mailontvanger aangepast';
     case 'emailRecipient.deactivated':
       return 'E-mailontvanger uitgeschakeld';
+    case 'emailRecipient.activated':
+      return 'E-mailontvanger ingeschakeld';
+    case 'emailRecipient.deleted':
+      return 'E-mailontvanger verwijderd';
     default:
       return action;
   }

@@ -42,6 +42,7 @@ For work that changes accounting, classification, review, or financial data cont
 | Approved target merchant identity and matching architecture | `docs/architecture/MERCHANT_KNOWLEDGE_ARCHITECTURE.md` |
 | Approved target decision orchestration and provenance architecture | `docs/architecture/DECISION_ENGINE_ARCHITECTURE.md` |
 | Active run, handoff, validation evidence, and exact next task | `docs/finance-rebuild-run.md` |
+| Settings navigation, recipient lifecycle, and rollback behavior | `docs/SETTINGS_NAVIGATION_AND_EMAIL_RECIPIENTS.md` |
 | Documentation ownership, status, migration, and archival rules | `docs/DOCUMENTATION_GOVERNANCE.md` |
 | Ledger customer/type dimensions, audit-count scope, and rollback contract | `docs/LEDGER_DIMENSIONS_AND_ROLLBACK.md` |
 

@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FinanceAppFrame } from '@/ui/FinanceAppFrame';
 import {
+  activateEmailRecipient,
   deactivateEmailRecipient,
   fetchAuditLogs,
   fetchEmailRecipients,
   fetchImportBatches,
   getImportBatchDownloadUrl,
   saveEmailRecipient,
+  removeEmailRecipient,
   type AuditLogEntry,
   type EmailRecipient,
   type ImportBatchSummary,
@@ -45,6 +47,72 @@ import {
   translateAuditAction,
   translateImportStatus,
 } from '@/helpers/settings-page';
+
+const SETTINGS_LINKS = [
+  { id: 'settings-projects', label: 'Klanten en projecten' },
+  { id: 'settings-categories', label: 'Categorieën' },
+  { id: 'settings-transaction-types', label: 'Transactietypen' },
+  { id: 'settings-category-overview', label: 'Categorieoverzicht' },
+  { id: 'settings-imports', label: 'Importgeschiedenis' },
+  { id: 'settings-email', label: 'E-mailontvangers' },
+  { id: 'settings-operator-tools', label: 'Beheerhulpmiddelen' },
+  { id: 'settings-audit-log', label: 'Auditlog' },
+  { id: 'settings-guardrails', label: 'Veiligheid' },
+];
+
+function SettingsSectionLinks() {
+  return (
+    <nav aria-label="Instellingen op deze pagina">
+      <p className="mb-2 px-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#8a7965]">Op deze pagina</p>
+      <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:gap-1">
+        {SETTINGS_LINKS.map((item) => (
+          <a key={item.id} href={`#${item.id}`} className="shrink-0 rounded-xl px-3 py-2 text-xs font-medium text-[#6f6253] hover:bg-[#efe7db] hover:text-[#251f1a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#1f5f4a] lg:text-sm">
+            {item.label}
+          </a>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
+function SettingsSection({ id, title, description, children, defaultOpen = false }: {
+  id: string;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const panelId = `${id}-panel`;
+
+  useEffect(() => {
+    const openFromHash = () => {
+      if (window.location.hash !== `#${id}`) return;
+      setOpen(true);
+      window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+    };
+    openFromHash();
+    window.addEventListener('hashchange', openFromHash);
+    return () => window.removeEventListener('hashchange', openFromHash);
+  }, [id]);
+
+  return (
+    <section id={id} className="scroll-mt-5">
+      <h3>
+        <button type="button" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((value) => !value)} className="flex w-full items-center justify-between gap-4 border-b border-[#ded5c8] px-2 py-4 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1f5f4a]">
+          <span>
+            <span className="block text-lg font-semibold tracking-[-0.03em] text-[#251f1a]">{title}</span>
+            <span className="mt-1 block text-sm leading-5 text-[#6f6253]">{description}</span>
+          </span>
+          <span aria-hidden="true" className="shrink-0 text-xl text-[#7d6d5a]">{open ? '−' : '+'}</span>
+        </button>
+      </h3>
+      <div id={panelId} hidden={!open} className="pt-4">
+        {children}
+      </div>
+    </section>
+  );
+}
 
 function SettingCard({ title, body, status }: { title: string; body: string; status: string }) {
   return (
@@ -166,6 +234,43 @@ function EmailRecipientsPanel() {
     }
   };
 
+  const activate = async (id: string) => {
+    if (!canManageRecipients) {
+      setError('Alleen beheerders mogen e-mailontvangers beheren.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await activateEmailRecipient(id);
+      loadRecipients();
+    } catch (activateError) {
+      setError(activateError instanceof Error ? activateError.message : 'E-mailontvanger kon niet worden ingeschakeld.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (recipient: EmailRecipient) => {
+    if (!canManageRecipients) {
+      setError('Alleen beheerders mogen e-mailontvangers beheren.');
+      return;
+    }
+    if (recipient.isActive) {
+      setError('Schakel de e-mailontvanger eerst uit voordat je deze verwijdert.');
+      return;
+    }
+    if (!window.confirm(`E-mailontvanger ${recipient.email} definitief verwijderen? Deze actie kan niet ongedaan worden gemaakt.`)) return;
+    setBusy(true);
+    try {
+      await removeEmailRecipient(recipient.id);
+      loadRecipients();
+    } catch (removeError) {
+      setError(removeError instanceof Error ? removeError.message : 'E-mailontvanger kon niet worden verwijderd.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <section className="rounded-[2rem] border border-[#ded5c8] bg-[#fbf8f2] p-6 shadow-[0_24px_70px_rgba(87,67,45,0.08)]">
       <p className="text-sm font-medium text-[#7d6d5a]">E-mailupdates</p>
@@ -188,9 +293,16 @@ function EmailRecipientsPanel() {
               <p className="font-semibold text-[#251f1a]">{recipient.name || recipient.email}</p>
               <p className="text-xs text-[#7d6d5a]">{recipient.email} · {recipient.isActive ? 'actief' : 'uitgeschakeld'}</p>
             </div>
-            {recipient.isActive ? (
-              <button type="button" disabled={busy || !canManageRecipients} onClick={() => deactivate(recipient.id)} className="rounded-full border border-[#ded5c8] px-3 py-1 text-xs font-semibold text-[#7b4b3a] disabled:opacity-60">{canManageRecipients ? 'Uitschakelen' : 'Alleen beheerder'}</button>
-            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {recipient.isActive ? (
+                <button type="button" disabled={busy || !canManageRecipients} onClick={() => deactivate(recipient.id)} className="rounded-full border border-[#ded5c8] px-3 py-1 text-xs font-semibold text-[#7b4b3a] disabled:opacity-60">{canManageRecipients ? 'Uitschakelen' : 'Alleen beheerder'}</button>
+              ) : (
+                <>
+                  <button type="button" disabled={busy || !canManageRecipients} onClick={() => activate(recipient.id)} className="rounded-full border border-[#1f5f4a] px-3 py-1 text-xs font-semibold text-[#1f5f4a] disabled:opacity-60">{canManageRecipients ? 'Inschakelen' : 'Alleen beheerder'}</button>
+                  <button type="button" disabled={busy || !canManageRecipients} onClick={() => remove(recipient)} className="rounded-full border border-[#ded5c8] px-3 py-1 text-xs font-semibold text-[#7b4b3a] disabled:opacity-60">Verwijderen</button>
+                </>
+              )}
+            </div>
           </div>
         )) : <p className="rounded-2xl bg-[#f5f1ea] p-4 text-sm text-[#6f6253]">Nog geen e-mailontvangers toegevoegd.</p>}
       </div>
@@ -952,29 +1064,47 @@ export default function FinanceSettingsPage() {
   const [referenceCategories, setReferenceCategories] = useState<ReferenceCategoryItem[] | null>(null);
 
   return (
-    <FinanceAppFrame reviewCount={summary.reviewCount} activeHref="/settings">
+    <FinanceAppFrame reviewCount={summary.reviewCount} activeHref="/settings" settingsNavigation={<SettingsSectionLinks />}>
       <header className="mb-6 rounded-[2rem] border border-[#ded5c8] bg-[#fbf8f2] p-5 shadow-[0_24px_70px_rgba(87,67,45,0.08)]">
         <p className="text-sm font-medium text-[#7d6d5a]">Instellingen</p>
         <h2 className="mt-1 text-3xl font-semibold tracking-[-0.05em] md:text-4xl">Beheer zonder rommel</h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-[#6f6253]">Deze pagina toont de instellingen die belangrijk zijn voor de administratie. Gevaarlijke acties blijven bewust buiten de normale workflow.</p>
       </header>
 
-      <div className="space-y-6">
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="space-y-4">
+        <section id="settings-summary" className="grid scroll-mt-5 gap-4 md:grid-cols-2 xl:grid-cols-3">
           <SettingCard title="Gebruikers" body="De app blijft privé. Clerk verzorgt de aanmelding; actieve workspace-lidmaatschappen bepalen de lees- en beheermachtigingen." status="Actief" />
           <SettingCard title="E-mailupdates" body="Maandelijkse financiële samenvattingen blijven via Resend lopen en zijn versimpeld naar finance-only e-mails." status="Actief" />
           <SettingCard title="Beheermodus" body="Handmatig wijzigen of verwijderen van transacties hoort later achter een aparte veilige beheermodus, niet in het normale dashboard." status="Gepland" />
         </section>
 
-        <ProjectsPanel admin={admin} />
-        <CategoriesPanel admin={admin} onItemsLoaded={setReferenceCategories} />
-        <TransactionTypesPanel admin={admin} />
-        <CategoryOverview categories={referenceCategories} />
-        <ImportHistoryPanel />
-        <EmailRecipientsPanel />
-        <OperatorToolsPanel admin={admin} />
-        <AuditLogPreview />
-        <GuardrailList />
+        <SettingsSection id="settings-projects" title="Klanten en projecten" description="Beheer klanten en de projecten die bij transacties kunnen worden gekozen.">
+          <ProjectsPanel admin={admin} />
+        </SettingsSection>
+        <SettingsSection id="settings-categories" title="Categorieën" description="Beheer de actieve categorieën voor inkomsten en uitgaven.">
+          <CategoriesPanel admin={admin} onItemsLoaded={setReferenceCategories} />
+        </SettingsSection>
+        <SettingsSection id="settings-transaction-types" title="Transactietypen" description="Beheer de transactietypen die in de administratie worden gebruikt.">
+          <TransactionTypesPanel admin={admin} />
+        </SettingsSection>
+        <SettingsSection id="settings-category-overview" title="Categorieoverzicht" description="Bekijk de huidige indeling van hoofd- en subcategorieën.">
+          <CategoryOverview categories={referenceCategories} />
+        </SettingsSection>
+        <SettingsSection id="settings-imports" title="Importgeschiedenis" description="Bekijk en download recent opgeslagen ING-importbestanden.">
+          <ImportHistoryPanel />
+        </SettingsSection>
+        <SettingsSection id="settings-email" title="E-mailontvangers" description="Voeg ontvangers toe, schakel ze in of uit, of verwijder uitgeschakelde adressen.">
+          <EmailRecipientsPanel />
+        </SettingsSection>
+        <SettingsSection id="settings-operator-tools" title="Beheerhulpmiddelen" description="Geavanceerde hulpmiddelen voor beheer en controle.">
+          <OperatorToolsPanel admin={admin} />
+        </SettingsSection>
+        <SettingsSection id="settings-audit-log" title="Auditlog" description="Bekijk recente wijzigingen en de bijbehorende beheeracties.">
+          <AuditLogPreview />
+        </SettingsSection>
+        <SettingsSection id="settings-guardrails" title="Veiligheid" description="Lees welke beveiligingen gelden voor gevoelige wijzigingen.">
+          <GuardrailList />
+        </SettingsSection>
       </div>
     </FinanceAppFrame>
   );

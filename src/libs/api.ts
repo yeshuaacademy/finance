@@ -642,6 +642,23 @@ export const deactivateEmailRecipient = async (id: string): Promise<EmailRecipie
   return response.json();
 };
 
+export const activateEmailRecipient = async (id: string): Promise<EmailRecipient> => {
+  const response = await fetch(getApiUrl(`/api/email-recipients/${encodeApiPathSegment(id)}/activate`), withUserHeader({ method: 'POST' }));
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'E-mailontvanger kon niet worden ingeschakeld.' }));
+    throw new Error(error.error ?? 'E-mailontvanger kon niet worden ingeschakeld.');
+  }
+  return response.json();
+};
+
+export const removeEmailRecipient = async (id: string): Promise<void> => {
+  const response = await fetch(getApiUrl(`/api/email-recipients/${encodeApiPathSegment(id)}/remove`), withUserHeader({ method: 'POST' }));
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'E-mailontvanger kon niet worden verwijderd.' }));
+    throw new Error(error.error ?? 'E-mailontvanger kon niet worden verwijderd.');
+  }
+};
+
 export type ImportBatchSummary = {
   id: string;
   filename: string;
