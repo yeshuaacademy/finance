@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { Request, Response } from 'express';
 import { prisma } from '../prismaClient';
 import { requireAuthenticatedRequest, requireAdmin } from '../auth/requestContext';
@@ -23,6 +24,16 @@ export const serializeEmailRecipient = (recipient: EmailRecipientResponseInput) 
   createdAt: recipient.createdAt.toISOString(),
   updatedAt: recipient.updatedAt.toISOString(),
 });
+
+const lockEmailRecipient = async (tx: Prisma.TransactionClient, userId: string, recipientId: string) => {
+  await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT "id"
+    FROM "EmailRecipient"
+    WHERE "id" = ${recipientId} AND "userId" = ${userId}
+    FOR UPDATE
+  `;
+  return tx.emailRecipient.findFirst({ where: { id: recipientId, userId } });
+};
 
 export const listEmailRecipients = async (req: Request, res: Response) => {
   const actor = await requireAuthenticatedRequest(req, res);
@@ -127,15 +138,14 @@ export const deactivateEmailRecipient = async (req: Request, res: Response) => {
 
   try {
     const response = await prisma.$transaction(async (tx) => {
-      const existing = await tx.emailRecipient.findFirst({
-        where: {
-          id: recipientId,
-          userId,
-        },
-      });
+      const existing = await lockEmailRecipient(tx, userId, recipientId);
 
       if (!existing) {
         return { status: 404 as const, body: { error: 'E-mailontvanger niet gevonden.' } };
+      }
+
+      if (!existing.isActive) {
+        return { status: 200 as const, body: serializeEmailRecipient(existing) };
       }
 
       const updated = await tx.emailRecipient.update({
@@ -185,7 +195,7 @@ export const activateEmailRecipient = async (req: Request, res: Response) => {
 
   try {
     const response = await prisma.$transaction(async (tx) => {
-      const existing = await tx.emailRecipient.findFirst({ where: { id: recipientId, userId } });
+      const existing = await lockEmailRecipient(tx, userId, recipientId);
       if (!existing) return { status: 404 as const, body: { error: 'E-mailontvanger niet gevonden.' } };
 
       const updated = existing.isActive
@@ -224,7 +234,7 @@ export const removeEmailRecipient = async (req: Request, res: Response) => {
 
   try {
     const response = await prisma.$transaction(async (tx) => {
-      const existing = await tx.emailRecipient.findFirst({ where: { id: recipientId, userId } });
+      const existing = await lockEmailRecipient(tx, userId, recipientId);
       if (!existing) return { status: 404 as const, body: { error: 'E-mailontvanger niet gevonden.' } };
       if (existing.isActive) {
         return { status: 409 as const, body: { error: 'Schakel de e-mailontvanger eerst uit voordat je deze verwijdert.' } };

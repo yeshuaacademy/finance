@@ -10,7 +10,7 @@ vi.mock('../../server/auth/requestContext', () => ({ requireAdmin: mocks.require
 vi.mock('../../server/prismaClient', () => ({ prisma: { $transaction: mocks.transaction } }));
 vi.mock('../../server/services/auditLogService', () => ({ createAuditLog: mocks.createAuditLog }));
 
-import { activateEmailRecipient, isEmailRecipientAddress, removeEmailRecipient, serializeEmailRecipient } from '../../server/routes/emailRecipients';
+import { activateEmailRecipient, deactivateEmailRecipient, isEmailRecipientAddress, removeEmailRecipient, serializeEmailRecipient } from '../../server/routes/emailRecipients';
 
 const recipient = (isActive: boolean) => ({
   id: 'recipient-1',
@@ -73,6 +73,7 @@ describe('email recipient routes', () => {
     const before = recipient(false);
     const after = recipient(true);
     const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: before.id }]),
       emailRecipient: {
         findFirst: vi.fn().mockResolvedValue(before),
         update: vi.fn().mockResolvedValue(after),
@@ -85,6 +86,7 @@ describe('email recipient routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect((response.body as { isActive: boolean }).isActive).toBe(true);
+    expect(tx.$queryRaw).toHaveBeenCalledOnce();
     expect(tx.emailRecipient.update).toHaveBeenCalledWith({ where: { id: 'recipient-1' }, data: { isActive: true } });
     expect(mocks.createAuditLog).toHaveBeenCalledWith(tx, expect.objectContaining({
       action: 'emailRecipient.activated',
@@ -95,6 +97,7 @@ describe('email recipient routes', () => {
 
   it('refuses to remove an active recipient and does not write or delete', async () => {
     const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'recipient-1' }]),
       emailRecipient: {
         findFirst: vi.fn().mockResolvedValue(recipient(true)),
         delete: vi.fn(),
@@ -113,6 +116,7 @@ describe('email recipient routes', () => {
   it('audits the prior recipient state atomically before permanent removal', async () => {
     const before = recipient(false);
     const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: before.id }]),
       emailRecipient: {
         findFirst: vi.fn().mockResolvedValue(before),
         delete: vi.fn().mockResolvedValue(before),
@@ -132,5 +136,51 @@ describe('email recipient routes', () => {
       before: { email: before.email, name: before.name, isActive: false },
       after: null,
     }));
+  });
+
+  it('does not write an audit entry when deactivating an already-disabled recipient', async () => {
+    const existing = recipient(false);
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: existing.id }]),
+      emailRecipient: {
+        findFirst: vi.fn().mockResolvedValue(existing),
+        update: vi.fn(),
+      },
+    };
+    mocks.transaction.mockImplementation(async (callback: (transaction: any) => unknown) => callback(tx));
+    const response = makeResponse();
+
+    await deactivateEmailRecipient(makeRequest() as never, response as never);
+
+    expect(response.statusCode).toBe(200);
+    expect((response.body as { isActive: boolean }).isActive).toBe(false);
+    expect(tx.emailRecipient.update).not.toHaveBeenCalled();
+    expect(mocks.createAuditLog).not.toHaveBeenCalled();
+  });
+
+  it('rejects reactivation for a non-admin before opening a transaction', async () => {
+    mocks.requireAdmin.mockImplementationOnce(async (_request: unknown, response: ReturnType<typeof makeResponse>) => {
+      response.status(403).json({ error: 'Alleen beheerders mogen deze actie uitvoeren.' });
+      return null;
+    });
+    const response = makeResponse();
+
+    await activateEmailRecipient(makeRequest() as never, response as never);
+
+    expect(response.statusCode).toBe(403);
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects permanent removal for a non-admin before opening a transaction', async () => {
+    mocks.requireAdmin.mockImplementationOnce(async (_request: unknown, response: ReturnType<typeof makeResponse>) => {
+      response.status(403).json({ error: 'Alleen beheerders mogen deze actie uitvoeren.' });
+      return null;
+    });
+    const response = makeResponse();
+
+    await removeEmailRecipient(makeRequest() as never, response as never);
+
+    expect(response.statusCode).toBe(403);
+    expect(mocks.transaction).not.toHaveBeenCalled();
   });
 });

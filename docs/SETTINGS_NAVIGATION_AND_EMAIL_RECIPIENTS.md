@@ -27,6 +27,7 @@ Current section anchors:
 
 - Adding an existing address continues to reactivate/update its existing row through the established upsert path.
 - Active recipients can be disabled. Disabled recipients can be re-enabled by an administrator; activation is recorded in the audit log.
+- State transitions lock the workspace-owned recipient row inside the write transaction, so concurrent activation, deactivation, or removal requests observe and audit the serialized state.
 - Permanent removal is available only for disabled recipients. The UI asks for confirmation, and the server independently enforces the administrator role, recipient ownership, and inactive-state requirement.
 - Removal and its before-state audit record are committed in one database transaction. Report-dispatch recipient snapshots are separate records and remain unchanged.
 
